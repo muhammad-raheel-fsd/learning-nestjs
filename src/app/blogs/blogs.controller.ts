@@ -7,6 +7,8 @@ import {
   Param,
   Delete,
   Query,
+  ParseIntPipe,
+  DefaultValuePipe,
 } from '@nestjs/common';
 import { BlogsService } from './blogs.service';
 import { CreateBlogDto } from './dto/create-blog.dto';
@@ -22,17 +24,26 @@ export class BlogsController {
   }
 
   @Get()
-  findAll(@Query() query: any) {
-    console.log('Slug:', query);
+  findAll(
+    @Query('slug') slug: string,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+    @Query('offset', new DefaultValuePipe(1), ParseIntPipe) offset: number,
+  ) {
+    console.log('Slug:', slug);
+    console.log('Limit:', limit);
+    console.log('Offset: ', offset);
     return this.blogsService.findAll();
   }
   // We can also add as much as params, but optional param should be at the end
-  // ? to make a param optional
-  // @Get(':id/:title?')
+  // stack to make a param optional
+  // @Get(':id/:title')
   @Get(':id')
+  @Get(':id/:title')
   // if we dont define which param to receive it will be an object containing all params - same for query params
   // findOne(@Param() params)
-  findOne(@Param('id') id: string) {
+  findOne(@Param('id') id: string, @Param('title') title?: string) {
+    console.log('Title:', title);
+    console.log('Id: ', id);
     return this.blogsService.findOne(+id);
   }
 
