@@ -17,8 +17,8 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login/:userId')
-  login(@Param('userId', ParseIntPipe) userId: number) {
-    return this.authService.login(+userId);
+  login(@Param('userId', ParseIntPipe) userId: string) {
+    return this.authService.login(userId);
   }
 
   @Post()

@@ -1,11 +1,11 @@
 import { Type } from 'class-transformer';
-import { IsBoolean, IsNotEmpty, IsNumber, IsOptional } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class GetUserParamDto {
   @IsNotEmpty()
-  @IsNumber()
-  @Type(() => Number)
-  id: number;
+  @IsString()
+  // @Type(() => Number)
+  id: string;
 
   @IsOptional()
   @IsBoolean()

@@ -1,10 +1,12 @@
 import {
   IsEmail,
   IsNotEmpty,
+  IsOptional,
   IsString,
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { CreateProfileDto } from 'src/app/profile/dto/create-profile.dto';
 import { MatchPassword } from 'src/shared';
 
 export class CreateUserDto {
@@ -38,4 +40,7 @@ export class CreateUserDto {
     message: 'passwords do not match',
   })
   confirmPassword: string;
+
+  @IsOptional()
+  profile: CreateProfileDto;
 }

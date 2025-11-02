@@ -4,10 +4,11 @@ import { UsersService } from './users.service';
 import { UsersController } from './users.controller';
 import { AuthModule } from '../auth/auth.module';
 import { User } from './entities/user.entity';
+import { Profile } from '../profile/entities/profile.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User]), // Register the User repository
+    TypeOrmModule.forFeature([User, Profile]), // Register the User repository
     forwardRef(() => AuthModule), // Use forwardRef to resolve circular dependency
   ],
   controllers: [UsersController],

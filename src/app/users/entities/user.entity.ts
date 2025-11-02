@@ -1,8 +1,11 @@
+import { Profile } from 'src/app/profile/entities/profile.entity';
 import {
   Column,
   CreateDateColumn,
   DeleteDateColumn,
   Entity,
+  JoinColumn,
+  OneToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
@@ -11,7 +14,7 @@ import {
 export class User {
   // user entity definition for table structure
   @PrimaryGeneratedColumn('uuid')
-  id: number;
+  id: string; // UUID is a string, not a number
 
   @Column({ type: 'varchar', length: '30', unique: true, nullable: false })
   email: string;
@@ -33,6 +36,10 @@ export class User {
 
   @DeleteDateColumn()
   deletedAt: Date;
+
+  @OneToOne(() => Profile)
+  @JoinColumn()
+  profile: Profile;
 }
 
 // {
@@ -41,16 +48,6 @@ export class User {
 //   "username": "janedoe",
 //   "email": "jane.doe@example.com",
 //   "gender": "female",
-//   "password": "s3cr3tPass",
-//   "confirmPassword": "s3cr3tPass"
-// }
-
-// {
-//   "firstName": "John",
-//   "lastName": "Doe",
-//   "username": "johndoe",
-//   "email": "john.doe@example.com",
-//   "gender": "male",
 //   "password": "s3cr3tPass",
 //   "confirmPassword": "s3cr3tPass"
 // }

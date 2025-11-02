@@ -11,7 +11,7 @@ export class AuthService {
   ) {}
 
   // Login method that uses UsersService to get user by id
-  login(userId: number) {
+  login(userId: string) {
     const user = this.usersService.findOne(userId);
     return {
       message: 'User logged in successfully',
