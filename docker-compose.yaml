@@ -1,0 +1,34 @@
+services:
+  db:
+    image: postgres:latest
+    container_name: ${POSTGRES_CONTAINER_NAME:-postgres_container}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_password}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres_db}
+    ports:
+      - "5432:5432" # Map host port 5432 to container port 5432
+    volumes:
+      - db_data:/var/lib/postgresql # Changed for Postgres 18+ compatibility
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin_container
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+    ports:
+      - "5050:80" # Map host port 5050 to container port 80
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+volumes:
+  db_data:
+  pgadmin_data:
