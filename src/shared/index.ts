@@ -1,1 +1,1 @@
-export * from './match-password.decorator';
+export * from './custom-pipes';

@@ -1,10 +1,6 @@
 import {
-  IsBoolean,
   IsEmail,
-  IsEnum,
   IsNotEmpty,
-  IsNumber,
-  IsOptional,
   IsString,
   MaxLength,
   MinLength,
@@ -12,28 +8,19 @@ import {
 import { MatchPassword } from 'src/shared';
 
 export class CreateUserDto {
-  @IsNumber()
-  @IsOptional()
-  id: number;
   @IsString()
   @IsNotEmpty()
-  @MaxLength(50, {
-    message: 'Name must be at most 50 characters long',
+  @MaxLength(40, {
+    message: 'username must be at most 40 characters long',
   })
-  name: string;
+  username: string;
 
   @IsEmail()
-  email: string;
-
-  @IsOptional()
-  @IsEnum(['male', 'female', 'other'], {
-    message: 'Gender must be male, female or other',
+  @IsNotEmpty()
+  @MaxLength(30, {
+    message: 'email must be at most 30 characters long',
   })
-  gender: string;
-
-  @IsBoolean()
-  @IsOptional()
-  isMarried: boolean;
+  email: string;
 
   @IsString()
   @IsNotEmpty()
@@ -47,12 +34,6 @@ export class CreateUserDto {
 
   @IsNotEmpty()
   @IsString()
-  //   @MinLength(6, {
-  //     message: 'Confirm password must be at least 6 characters long',
-  //   })
-  //   @MaxLength(20, {
-  //     message: 'Confirm password must be at most 20 characters long',
-  //   })
   @MatchPassword('password', {
     message: 'passwords do not match',
   })
