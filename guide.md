@@ -1850,8 +1850,2036 @@ await userRepository.delete({ id: user.id });
 ---
 
 ## One-to-Many / Many-to-One
-Remeber when we have many to one relationsthip, foreign key is always stored in table of many side
-*Coming soon...*
+
+**Remember:** When you have a Many-to-One relationship, the foreign key is **always stored in the table on the "many" side**.
+
+### Example: User ↔ Tweets
+
+A User can have many Tweets, but each Tweet belongs to exactly one User. This is the most common type of relationship in databases.
+
+### Database Schema
+
+```
+┌─────────────────┐         ┌─────────────────┐
+│  User Table     │         │  Tweet Table    │
+├─────────────────┤         ├─────────────────┤
+│ id (PK)         │←───────┐│ id (PK)         │
+│ email           │        ││ title           │
+│ username        │        ││ content         │
+│ createdAt       │        ││ image           │
+│                 │        │├─────────────────┤
+│                 │        └│ userId (FK)     │ ← Foreign key on "many" side
+│                 │         │ createdAt       │
+└─────────────────┘         └─────────────────┘
+     ONE                         MANY
+```
+
+**Key Points:**
+- Tweet table contains the foreign key (`userId`)
+- One User can have multiple Tweets
+- Each Tweet has exactly one User
+- The "many" side (Tweet) is the **owning side**
+
+---
+
+### Understanding the Relationship
+
+#### Terminology
+
+| Term | Description | In Our Example |
+|------|-------------|----------------|
+| **One-to-Many** | One parent can have many children | User has many Tweets |
+| **Many-to-One** | Many children belong to one parent | Tweet belongs to one User |
+| **Owning Side** | The side with the foreign key | Tweet (has `userId`) |
+| **Inverse Side** | The side without the foreign key | User (no foreign key) |
+
+**Important:** One-to-Many and Many-to-One are the **same relationship** viewed from different perspectives!
+
+```typescript
+// View 1: One-to-Many (from User's perspective)
+User → has many → Tweets
+
+// View 2: Many-to-One (from Tweet's perspective)
+Tweet → belongs to one → User
+```
+
+---
+
+### Entity Configuration
+
+#### Many Side (Tweet Entity) - Owning Side
+
+The entity with `@ManyToOne` is the owning side and contains the foreign key.
+
+```typescript
+// src/app/tweet/entities/tweet.entity.ts
+import { User } from 'src/app/users/entities/user.entity';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  ManyToOne,
+  JoinColumn,
+  CreateDateColumn,
+} from 'typeorm';
+
+@Entity()
+export class Tweet {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ type: 'varchar', length: 100 })
+  title: string;
+
+  @Column({ type: 'varchar', length: 300 })
+  content: string;
+
+  // Many-to-One: Many tweets belong to one user
+  @ManyToOne(() => User, (user) => user.tweets, {
+    nullable: false,      // Tweet must have a user
+    onDelete: 'CASCADE',  // Delete tweet when user is deleted
+  })
+  @JoinColumn()  // Optional: Creates userId foreign key column
+  user: User;
+
+  @CreateDateColumn()
+  createdAt: Date;
+}
+```
+
+**Key Configuration:**
+- `@ManyToOne()` - Defines the many-to-one relationship
+- `@JoinColumn()` - Optional (TypeORM creates FK automatically for @ManyToOne)
+- `(user) => user.tweets` - Points to the inverse side property
+- `nullable: false` - Tweet cannot exist without a User
+- `onDelete: 'CASCADE'` - Database-level cascade delete
+
+---
+
+#### One Side (User Entity) - Inverse Side
+
+The entity with `@OneToMany` is the inverse side (no foreign key).
+
+```typescript
+// src/app/users/entities/user.entity.ts
+import { Tweet } from 'src/app/tweet/entities/tweet.entity';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  OneToMany,
+} from 'typeorm';
+
+@Entity()
+export class User {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ unique: true })
+  email: string;
+
+  @Column({ unique: true })
+  username: string;
+
+  // One-to-Many: One user has many tweets
+  @OneToMany(() => Tweet, (tweet) => tweet.user, {
+    cascade: ['insert', 'update'],  // Application-level cascade
+  })
+  tweets: Tweet[];  // Array of tweets
+}
+```
+
+**Key Configuration:**
+- `@OneToMany()` - Defines the one-to-many relationship
+- NO `@JoinColumn()` - Inverse side doesn't have the foreign key
+- `(tweet) => tweet.user` - Points to the owning side property
+- `tweets: Tweet[]` - Must be an array
+- `cascade: ['insert', 'update']` - Optional application-level cascade
+
+---
+
+### Critical Rules
+
+#### Rule 1: @OneToMany Cannot Exist Without @ManyToOne
+
+```typescript
+// ❌ WRONG - @OneToMany alone doesn't work
+@Entity()
+export class User {
+  @OneToMany(() => Tweet)  // Missing the inverse relation!
+  tweets: Tweet[];
+}
+
+// ✅ CORRECT - Must have @ManyToOne on the other side
+@Entity()
+export class User {
+  @OneToMany(() => Tweet, (tweet) => tweet.user)
+  tweets: Tweet[];
+}
+
+@Entity()
+export class Tweet {
+  @ManyToOne(() => User, (user) => user.tweets)
+  user: User;
+}
+```
+
+#### Rule 2: @ManyToOne Can Exist Alone (Unidirectional)
+
+```typescript
+// ✅ VALID - @ManyToOne without @OneToMany
+@Entity()
+export class Tweet {
+  @ManyToOne(() => User)
+  user: User;
+}
+
+@Entity()
+export class User {
+  // No @OneToMany defined
+  // You can't access user.tweets, but tweet.user works fine
+}
+```
+
+**When to use unidirectional:**
+- You only need to access the relationship from one side
+- You want to avoid circular dependencies
+- Performance: smaller queries when you don't load collections
+
+#### Rule 3: Foreign Key is ALWAYS on the @ManyToOne Side
+
+```typescript
+// Database will have:
+// tweet table:
+//   - id (PK)
+//   - userId (FK) ← Automatically created here!
+//
+// user table:
+//   - id (PK)
+//   - (no foreign key)
+```
+
+---
+
+### Cascade Operations for One-to-Many
+
+#### Database-Level Cascade (on @ManyToOne side)
+
+```typescript
+@Entity()
+export class Tweet {
+  @ManyToOne(() => User, (user) => user.tweets, {
+    onDelete: 'CASCADE',   // Delete tweets when user is deleted
+    onUpdate: 'CASCADE',   // Update userId when user.id changes
+  })
+  user: User;
+}
+```
+
+**Behavior:**
+```typescript
+// When you delete a user
+await userRepository.delete({ id: userId });
+
+// Database automatically executes:
+// DELETE FROM tweet WHERE userId = 'user-id'
+// All tweets by this user are deleted automatically!
+```
+
+**Available Actions:**
+
+| Action | Behavior | Use Case |
+|--------|----------|----------|
+| `CASCADE` | Delete all tweets when user is deleted | Social media - delete posts with account |
+| `SET NULL` | Set `userId` to NULL (requires `nullable: true`) | Blog - keep posts as "anonymous" |
+| `RESTRICT` | Prevent user deletion if tweets exist | E-commerce - can't delete user with orders |
+| `NO ACTION` | Same as RESTRICT (default) | Default behavior |
+
+**Example: All Actions**
+
+```typescript
+// CASCADE - Delete tweets with user
+@Entity()
+export class Tweet {
+  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  user: User;
+}
+
+// SET NULL - Keep tweets, remove user reference
+@Entity()
+export class Post {
+  @ManyToOne(() => User, {
+    onDelete: 'SET NULL',
+    nullable: true  // Must be nullable!
+  })
+  author: User;
+}
+
+// RESTRICT - Prevent deletion if tweets exist
+@Entity()
+export class Order {
+  @ManyToOne(() => User, { onDelete: 'RESTRICT' })
+  customer: User;
+}
+// Trying to delete user with orders fails:
+// ERROR: update or delete on table "user" violates foreign key constraint
+```
+
+---
+
+#### Application-Level Cascade (on @OneToMany side)
+
+```typescript
+@Entity()
+export class User {
+  @OneToMany(() => Tweet, (tweet) => tweet.user, {
+    cascade: ['insert', 'update'],  // TypeORM handles these
+  })
+  tweets: Tweet[];
+}
+```
+
+##### cascade: ['insert'] - Auto-Save New Tweets
+
+```typescript
+// Create user with nested tweets
+const user = userRepository.create({
+  email: 'user@example.com',
+  username: 'johndoe',
+  tweets: [
+    { title: 'First Tweet', content: 'Hello World!' },
+    { title: 'Second Tweet', content: 'Learning TypeORM!' },
+  ]
+});
+
+await userRepository.save(user);
+// ✅ User AND all tweets saved automatically!
+
+// Generated SQL:
+// START TRANSACTION
+// INSERT INTO "user" ("email", "username") VALUES ($1, $2) RETURNING "id"
+// INSERT INTO "tweet" ("title", "content", "userId") VALUES ($1, $2, $3)
+// INSERT INTO "tweet" ("title", "content", "userId") VALUES ($1, $2, $3)
+// COMMIT
+```
+
+##### cascade: ['update'] - Auto-Update Tweets
+
+```typescript
+const user = await userRepository.findOne({
+  where: { id: userId },
+  relations: ['tweets']  // Must load relation!
+});
+
+// Modify tweets
+user.tweets[0].title = 'Updated Title';
+user.tweets.push({ title: 'New Tweet', content: 'Added later' } as Tweet);
+
+await userRepository.save(user);
+// ✅ User AND all tweet changes saved!
+```
+
+##### cascade: ['remove'] - Auto-Delete Tweets
+
+```typescript
+const user = await userRepository.findOne({
+  where: { id: userId },
+  relations: ['tweets']
+});
+
+await userRepository.remove(user);
+// ✅ Deletes user AND all their tweets
+
+// ⚠️ WARNING: Tweets must be loaded in memory to cascade!
+```
+
+---
+
+### Loading Strategies
+
+#### 1. Explicit Loading (Recommended)
+
+Load relations only when needed.
+
+```typescript
+// Load without tweets
+const user = await userRepository.findOne({
+  where: { id: userId }
+});
+console.log(user.tweets);  // undefined
+
+// Load with tweets
+const userWithTweets = await userRepository.findOne({
+  where: { id: userId },
+  relations: ['tweets']  // Explicitly load
+});
+console.log(userWithTweets.tweets);  // Array of tweets
+```
+
+**Pros:**
+- Full control over what's loaded
+- Better performance (load only when needed)
+- Explicit and easy to understand
+
+**Cons:**
+- Must remember to specify relations
+
+---
+
+#### 2. Eager Loading
+
+Automatically loads relation in every query.
+
+```typescript
+@Entity()
+export class User {
+  @OneToMany(() => Tweet, (tweet) => tweet.user, {
+    eager: true  // ← Always load tweets
+  })
+  tweets: Tweet[];
+}
+
+// Now tweets are loaded automatically
+const user = await userRepository.findOne({
+  where: { id: userId }
+  // No need to specify relations!
+});
+console.log(user.tweets);  // ✅ Array of tweets (loaded automatically)
+```
+
+**⚠️ Important Constraints:**
+
+1. **Only ONE side can be eager:**
+```typescript
+// ❌ WRONG - Both sides eager
+@Entity()
+export class User {
+  @OneToMany(() => Tweet, (tweet) => tweet.user, {
+    eager: true  // ❌
+  })
+  tweets: Tweet[];
+}
+
+@Entity()
+export class Tweet {
+  @ManyToOne(() => User, (user) => user.tweets, {
+    eager: true  // ❌ Conflict!
+  })
+  user: User;
+}
+
+// ✅ CORRECT - Only one side eager
+@Entity()
+export class User {
+  @OneToMany(() => Tweet, (tweet) => tweet.user, {
+    eager: true  // ✅ OK on one side
+  })
+  tweets: Tweet[];
+}
+
+@Entity()
+export class Tweet {
+  @ManyToOne(() => User, (user) => user.tweets)
+  // No eager here
+  user: User;
+}
+```
+
+2. **Doesn't work with QueryBuilder:**
+```typescript
+// Eager loading is DISABLED in QueryBuilder
+const users = await userRepository
+  .createQueryBuilder('user')
+  .where('user.email = :email', { email: 'test@example.com' })
+  .getMany();
+
+console.log(users[0].tweets);  // undefined (eager ignored!)
+
+// Must use leftJoinAndSelect
+const users = await userRepository
+  .createQueryBuilder('user')
+  .leftJoinAndSelect('user.tweets', 'tweet')
+  .where('user.email = :email', { email: 'test@example.com' })
+  .getMany();
+
+console.log(users[0].tweets);  // ✅ Array of tweets
+```
+
+**Pros:**
+- Convenient (no need to specify relations)
+- Less code
+
+**Cons:**
+- **Performance issue:** ALWAYS loads all tweets in every query
+- Can load unnecessary data
+- Doesn't work with QueryBuilder
+- Can cause performance problems with large collections
+
+**When to use eager:**
+- Small, frequently accessed collections
+- Relations almost always needed
+- Prototyping/development
+
+**When to avoid eager:**
+- Large collections (hundreds/thousands of items)
+- Relations rarely needed
+- Using QueryBuilder extensively
+- Production with performance concerns
+
+---
+
+#### 3. Lazy Loading (Not Recommended)
+
+⚠️ **TypeORM supports lazy loading but it's generally not recommended.**
+
+```typescript
+@Entity()
+export class User {
+  @OneToMany(() => Tweet, (tweet) => tweet.user)
+  tweets: Promise<Tweet[]>;  // Note: Promise type
+}
+
+// Usage
+const user = await userRepository.findOne({ where: { id: userId } });
+const tweets = await user.tweets;  // Must await the promise
+```
+
+**Why avoid lazy loading:**
+
+**N+1 Problem:**
+```typescript
+const users = await userRepository.find();  // 1 query
+
+for (const user of users) {
+  const tweets = await user.tweets;  // N queries (1 per user)!
+  console.log(tweets.length);
+}
+// Total: 1 + N queries (VERY SLOW for many users!)
+```
+
+**Better approach:**
+```typescript
+const users = await userRepository.find({
+  relations: ['tweets']  // Single query with JOIN
+});
+
+for (const user of users) {
+  console.log(user.tweets.length);  // No additional queries
+}
+// Total: 1 query (MUCH FASTER!)
+```
+
+---
+
+### Foreign Key Indexing & Performance
+
+#### PostgreSQL Foreign Key Behavior
+
+**Important:** PostgreSQL does **NOT** automatically create indexes on foreign key columns!
+
+```sql
+-- When you define a @ManyToOne relationship:
+CREATE TABLE "tweet" (
+  "id" uuid PRIMARY KEY,
+  "userId" uuid NOT NULL,
+  CONSTRAINT "FK_tweet_user" FOREIGN KEY ("userId")
+    REFERENCES "user"("id") ON DELETE CASCADE
+);
+
+-- Index on "userId" is NOT created automatically!
+```
+
+#### Why Index Foreign Keys?
+
+**1. JOIN Performance**
+
+```typescript
+// Without index on tweet.userId
+const users = await userRepository
+  .createQueryBuilder('user')
+  .leftJoinAndSelect('user.tweets', 'tweet')
+  .getMany();
+
+// PostgreSQL must do a FULL TABLE SCAN on tweet table!
+// Performance: O(n) - scans ALL tweets
+```
+
+```typescript
+// With index on tweet.userId
+const users = await userRepository
+  .createQueryBuilder('user')
+  .leftJoinAndSelect('user.tweets', 'tweet')
+  .getMany();
+
+// PostgreSQL uses INDEX on userId for efficient lookup
+// Performance: O(log n) - uses B-tree index
+```
+
+**2. DELETE/UPDATE Performance**
+
+```typescript
+await userRepository.delete({ id: userId });
+```
+
+```sql
+-- PostgreSQL must check all tweets to enforce CASCADE
+-- Without index: Full table scan
+-- With index: Fast lookup via index
+```
+
+**3. Finding Related Records**
+
+```typescript
+// Find all tweets by a user
+const tweets = await tweetRepository.find({
+  where: { user: { id: userId } }
+});
+
+// Without index on userId: Scans ALL tweets
+// With index: Direct lookup via index
+```
+
+---
+
+#### How to Add Indexes
+
+##### Method 1: Using @Index() Decorator (Recommended)
+
+```typescript
+@Entity()
+export class Tweet {
+  @ManyToOne(() => User, (user) => user.tweets, {
+    onDelete: 'CASCADE'
+  })
+  @JoinColumn({ name: 'userId' })
+  @Index()  // ← Explicitly create index on userId
+  user: User;
+}
+```
+
+##### Method 2: Index on Column Level
+
+```typescript
+@Entity()
+export class Tweet {
+  @Column()
+  @Index()  // ← Create index
+  userId: string;
+
+  @ManyToOne(() => User, (user) => user.tweets)
+  @JoinColumn({ name: 'userId' })
+  user: User;
+}
+```
+
+##### Method 3: Entity-Level Index
+
+```typescript
+@Entity()
+@Index(['userId'])  // ← Create index on userId
+export class Tweet {
+  @ManyToOne(() => User, (user) => user.tweets)
+  @JoinColumn({ name: 'userId' })
+  user: User;
+}
+```
+
+**Generated SQL:**
+```sql
+CREATE INDEX "IDX_tweet_userId" ON "tweet"("userId");
+```
+
+---
+
+#### When to Index Foreign Keys
+
+**✅ Index When:**
+- Frequently joining tables
+- Large number of child records
+- Regular queries filtering by foreign key
+- CASCADE deletes/updates on parent
+
+**❌ Don't Index When:**
+- Very few child records (< 100)
+- FK column rarely queried
+- High write volume, low read volume
+- Trying to optimize prematurely
+
+**Performance Trade-off:**
+```
+Indexes:
+  + Faster SELECT/JOIN/DELETE queries
+  - Slower INSERT/UPDATE operations
+  - More disk space
+
+Rule of thumb: Index foreign keys on "many" side if table has > 1000 rows
+```
+
+---
+
+### Generated SQL Queries
+
+#### Creating User with Tweets
+
+```typescript
+const user = await userRepository.save({
+  email: 'john@example.com',
+  username: 'johndoe',
+  tweets: [
+    { title: 'First', content: 'Hello!' },
+    { title: 'Second', content: 'World!' }
+  ]
+});
+```
+
+**Generated SQL:**
+```sql
+START TRANSACTION
+
+-- 1. Insert User first
+INSERT INTO "nestjs_app_user" ("email", "username", "createdAt")
+VALUES ($1, $2, DEFAULT)
+RETURNING "id", "email", "username", "createdAt"
+-- Parameters: ["john@example.com", "johndoe"]
+
+-- 2. Insert Tweets with userId foreign key
+INSERT INTO "nestjs_app_tweet" ("title", "content", "userId", "createdAt")
+VALUES ($1, $2, $3, DEFAULT)
+RETURNING "id", "title", "content", "userId", "createdAt"
+-- Parameters: ["First", "Hello!", "user-uuid-here"]
+
+INSERT INTO "nestjs_app_tweet" ("title", "content", "userId", "createdAt")
+VALUES ($1, $2, $3, DEFAULT)
+RETURNING "id", "title", "content", "userId", "createdAt"
+-- Parameters: ["Second", "World!", "user-uuid-here"]
+
+COMMIT
+```
+
+---
+
+#### Finding User with Tweets
+
+```typescript
+const user = await userRepository.findOne({
+  where: { id: userId },
+  relations: ['tweets']
+});
+```
+
+**Generated SQL:**
+```sql
+-- TypeORM uses LEFT JOIN to load tweets
+SELECT
+  "user"."id" AS "user_id",
+  "user"."email" AS "user_email",
+  "user"."username" AS "user_username",
+  "user_tweets"."id" AS "user_tweets_id",
+  "user_tweets"."title" AS "user_tweets_title",
+  "user_tweets"."content" AS "user_tweets_content",
+  "user_tweets"."userId" AS "user_tweets_userId"
+FROM "nestjs_app_user" "user"
+LEFT JOIN "nestjs_app_tweet" "user_tweets"
+  ON "user_tweets"."userId" = "user"."id"
+  AND "user_tweets"."deletedAt" IS NULL
+WHERE "user"."id" = $1
+  AND "user"."deletedAt" IS NULL
+-- Parameters: ["user-uuid"]
+```
+
+**Result Transformation:**
+```typescript
+// TypeORM transforms the flat result into nested objects:
+{
+  id: 'user-uuid',
+  email: 'john@example.com',
+  username: 'johndoe',
+  tweets: [
+    { id: 'tweet-1', title: 'First', content: 'Hello!' },
+    { id: 'tweet-2', title: 'Second', content: 'World!' }
+  ]
+}
+```
+
+---
+
+#### Deleting User (Cascades to Tweets)
+
+```typescript
+await userRepository.delete({ id: userId });
+```
+
+**Generated SQL:**
+```sql
+-- Step 1: Delete user
+DELETE FROM "nestjs_app_user"
+WHERE "id" = $1
+
+-- Step 2: Database automatically cascades (via FK constraint)
+-- DELETE FROM "nestjs_app_tweet" WHERE "userId" = $1
+-- (executed automatically by PostgreSQL)
+```
+
+The cascade happens at the database level because of:
+```typescript
+@ManyToOne(() => User, (user) => user.tweets, {
+  onDelete: 'CASCADE'  // ← Creates FK constraint with ON DELETE CASCADE
+})
+```
+
+---
+
+### Best Practices
+
+#### ✅ Recommended Patterns
+
+**1. Define Both Sides for Bi-directional Access**
+
+```typescript
+// Good: Can access from both directions
+@Entity()
+export class User {
+  @OneToMany(() => Tweet, (tweet) => tweet.user)
+  tweets: Tweet[];
+}
+
+@Entity()
+export class Tweet {
+  @ManyToOne(() => User, (user) => user.tweets)
+  user: User;
+}
+
+// Usage:
+user.tweets       // ✅ Works
+tweet.user        // ✅ Works
+```
+
+**2. Use Database CASCADE for Deletes**
+
+```typescript
+// Good: Reliable, performant
+@Entity()
+export class Tweet {
+  @ManyToOne(() => User, (user) => user.tweets, {
+    onDelete: 'CASCADE'  // Database handles it
+  })
+  user: User;
+}
+```
+
+**3. Use Application CASCADE for Creates/Updates**
+
+```typescript
+// Good: Convenient for nested saves
+@Entity()
+export class User {
+  @OneToMany(() => Tweet, (tweet) => tweet.user, {
+    cascade: ['insert', 'update']  // App-level convenience
+  })
+  tweets: Tweet[];
+}
+```
+
+**4. Index Foreign Keys on Large Tables**
+
+```typescript
+@Entity()
+@Index(['userId'])  // ← Add index for performance
+export class Tweet {
+  @ManyToOne(() => User, (user) => user.tweets)
+  @JoinColumn({ name: 'userId' })
+  user: User;
+}
+```
+
+**5. Use Explicit Loading by Default**
+
+```typescript
+// Good: Load only when needed
+const user = await userRepository.findOne({
+  where: { id },
+  relations: ['tweets']  // Explicit
+});
+```
+
+---
+
+#### ❌ Anti-Patterns to Avoid
+
+**1. Don't Use Eager Loading on Large Collections**
+
+```typescript
+// ❌ Bad: Loads ALL tweets in EVERY query
+@Entity()
+export class User {
+  @OneToMany(() => Tweet, (tweet) => tweet.user, {
+    eager: true  // Loads 10,000 tweets every time!
+  })
+  tweets: Tweet[];
+}
+
+// ✅ Good: Load explicitly when needed
+@Entity()
+export class User {
+  @OneToMany(() => Tweet, (tweet) => tweet.user)
+  tweets: Tweet[];
+}
+```
+
+**2. Don't Use Both CASCADE Delete Methods**
+
+```typescript
+// ❌ Bad: Redundant and can cause conflicts
+@Entity()
+export class Tweet {
+  @ManyToOne(() => User, (user) => user.tweets, {
+    onDelete: 'CASCADE'  // Database-level
+  })
+  user: User;
+}
+
+@Entity()
+export class User {
+  @OneToMany(() => Tweet, (tweet) => tweet.user, {
+    cascade: ['remove']  // Application-level - conflicts!
+  })
+  tweets: Tweet[];
+}
+
+// ✅ Good: Use only database cascade for deletes
+@Entity()
+export class Tweet {
+  @ManyToOne(() => User, (user) => user.tweets, {
+    onDelete: 'CASCADE'
+  })
+  user: User;
+}
+
+@Entity()
+export class User {
+  @OneToMany(() => Tweet, (tweet) => tweet.user, {
+    cascade: ['insert', 'update']  // Only these
+  })
+  tweets: Tweet[];
+}
+```
+
+**3. Don't Forget to Load Relations for Application Cascade**
+
+```typescript
+// ❌ Bad: Cascade won't work
+const user = await userRepository.findOne({
+  where: { id }
+  // Missing: relations: ['tweets']
+});
+await userRepository.remove(user);  // Only deletes user!
+
+// ✅ Good: Load relations first
+const user = await userRepository.findOne({
+  where: { id },
+  relations: ['tweets']
+});
+await userRepository.remove(user);  // Deletes user and tweets
+```
+
+**4. Don't Use Lazy Loading (N+1 Problem)**
+
+```typescript
+// ❌ Bad: N+1 queries
+@Entity()
+export class User {
+  @OneToMany(() => Tweet, (tweet) => tweet.user)
+  tweets: Promise<Tweet[]>;  // Lazy loading
+}
+
+const users = await userRepository.find();  // 1 query
+for (const user of users) {
+  const tweets = await user.tweets;  // N queries!
+}
+
+// ✅ Good: Single query with JOIN
+const users = await userRepository.find({
+  relations: ['tweets']
+});
+for (const user of users) {
+  console.log(user.tweets);  // Already loaded
+}
+```
+
+**5. Don't Use CASCADE on Optional Relations**
+
+```typescript
+// ❌ Bad: Deletes valuable data
+@Entity()
+export class Order {
+  @ManyToOne(() => User, {
+    onDelete: 'CASCADE',  // Deletes orders when user deleted!
+    nullable: true
+  })
+  customer: User;
+}
+
+// ✅ Good: Keep historical data
+@Entity()
+export class Order {
+  @ManyToOne(() => User, {
+    onDelete: 'SET NULL',  // Keep order, remove user reference
+    nullable: true
+  })
+  customer: User;
+}
+```
+
+---
+
+### Common Issues & Solutions
+
+#### Issue 1: "Cannot use @OneToMany without @ManyToOne"
+
+**Error:**
+```
+EntityMetadataBuilder error: @OneToMany decorator requires @ManyToOne on the related entity
+```
+
+**Cause:**
+```typescript
+// ❌ Missing @ManyToOne
+@Entity()
+export class User {
+  @OneToMany(() => Tweet)  // No inverse relation specified
+  tweets: Tweet[];
+}
+```
+
+**Solution:**
+```typescript
+// ✅ Add @ManyToOne on Tweet entity
+@Entity()
+export class User {
+  @OneToMany(() => Tweet, (tweet) => tweet.user)
+  tweets: Tweet[];
+}
+
+@Entity()
+export class Tweet {
+  @ManyToOne(() => User, (user) => user.tweets)
+  user: User;
+}
+```
+
+---
+
+#### Issue 2: Relation Returns Empty Array
+
+**Problem:**
+```typescript
+const user = await userRepository.findOne({ where: { id } });
+console.log(user.tweets);  // undefined (not empty array!)
+```
+
+**Solution 1: Load Relations Explicitly**
+```typescript
+const user = await userRepository.findOne({
+  where: { id },
+  relations: ['tweets']  // ← Add this
+});
+console.log(user.tweets);  // ✅ Array of tweets
+```
+
+**Solution 2: Use QueryBuilder**
+```typescript
+const user = await userRepository
+  .createQueryBuilder('user')
+  .leftJoinAndSelect('user.tweets', 'tweet')
+  .where('user.id = :id', { id })
+  .getOne();
+```
+
+---
+
+#### Issue 3: Cascade Not Working
+
+**Problem:**
+```typescript
+const user = await userRepository.findOne({ where: { id } });
+await userRepository.remove(user);
+// Tweets not deleted!
+```
+
+**Causes & Solutions:**
+
+**Cause 1: Relations Not Loaded**
+```typescript
+// ❌ Relations not in memory
+const user = await userRepository.findOne({ where: { id } });
+
+// ✅ Load relations
+const user = await userRepository.findOne({
+  where: { id },
+  relations: ['tweets']
+});
+```
+
+**Cause 2: Using .delete() instead of .remove()**
+```typescript
+// ❌ .delete() bypasses application cascade
+await userRepository.delete({ id });
+
+// ✅ .remove() triggers application cascade
+const user = await userRepository.findOne({
+  where: { id },
+  relations: ['tweets']
+});
+await userRepository.remove(user);
+
+// OR use database cascade (better)
+@ManyToOne(() => User, { onDelete: 'CASCADE' })
+```
+
+---
+
+#### Issue 4: Performance Problems with Large Collections
+
+**Problem:**
+```typescript
+// Loads 10,000 tweets every time!
+const user = await userRepository.findOne({
+  where: { id },
+  relations: ['tweets']
+});
+```
+
+**Solutions:**
+
+**Solution 1: Pagination**
+```typescript
+const tweets = await tweetRepository.find({
+  where: { user: { id: userId } },
+  take: 20,  // Limit
+  skip: 0,   // Offset
+  order: { createdAt: 'DESC' }
+});
+```
+
+**Solution 2: Query Only What You Need**
+```typescript
+const tweetCount = await tweetRepository.count({
+  where: { user: { id: userId } }
+});
+
+// Don't load all tweets just to count them!
+```
+
+**Solution 3: Use QueryBuilder with Select**
+```typescript
+const tweets = await tweetRepository
+  .createQueryBuilder('tweet')
+  .select(['tweet.id', 'tweet.title'])  // Only these fields
+  .where('tweet.userId = :userId', { userId })
+  .limit(20)
+  .getMany();
+```
+
+---
+
+### Complete Working Example
+
+```typescript
+// 1. Define Entities
+@Entity()
+export class User {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ unique: true })
+  email: string;
+
+  @OneToMany(() => Tweet, (tweet) => tweet.user, {
+    cascade: ['insert', 'update']
+  })
+  tweets: Tweet[];
+}
+
+@Entity()
+@Index(['userId'])  // Index for performance
+export class Tweet {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column()
+  title: string;
+
+  @Column()
+  content: string;
+
+  @ManyToOne(() => User, (user) => user.tweets, {
+    nullable: false,
+    onDelete: 'CASCADE'
+  })
+  @JoinColumn({ name: 'userId' })
+  user: User;
+
+  @CreateDateColumn()
+  createdAt: Date;
+}
+
+// 2. Create User with Tweets
+const user = await userRepository.save({
+  email: 'john@example.com',
+  tweets: [
+    { title: 'Hello', content: 'My first tweet!' },
+    { title: 'Update', content: 'Learning TypeORM' }
+  ]
+});
+
+// 3. Find User with Tweets
+const userWithTweets = await userRepository.findOne({
+  where: { id: user.id },
+  relations: ['tweets']
+});
+
+console.log(userWithTweets.tweets.length);  // 2
+
+// 4. Add More Tweets
+userWithTweets.tweets.push(
+  tweetRepository.create({
+    title: 'Another',
+    content: 'Adding more tweets'
+  })
+);
+await userRepository.save(userWithTweets);
+
+// 5. Find Tweets by User
+const tweets = await tweetRepository.find({
+  where: { user: { id: user.id } },
+  order: { createdAt: 'DESC' }
+});
+
+// 6. Delete User (cascades to tweets)
+await userRepository.delete({ id: user.id });
+// All tweets automatically deleted!
+```
+
+---
+
+### Decision Guide
+
+```
+Question: Should you use @OneToMany or just @ManyToOne?
+
+├─ Need to access collection from parent?
+│  ├─ YES → Use both @OneToMany and @ManyToOne (bi-directional)
+│  └─ NO → Use only @ManyToOne (uni-directional)
+│
+├─ Collection size?
+│  ├─ Small (< 100 items) → Safe to load eagerly if needed
+│  ├─ Medium (100-1000) → Load explicitly with pagination
+│  └─ Large (> 1000) → Always paginate, avoid loading all
+│
+├─ Foreign key indexing?
+│  ├─ Large table (> 1000 rows) → Add index
+│  ├─ Frequent JOINs → Add index
+│  └─ Small table, rare queries → Skip index
+│
+└─ Cascade delete behavior?
+   ├─ Delete children with parent → onDelete: 'CASCADE'
+   ├─ Keep children as orphans → onDelete: 'SET NULL' + nullable: true
+   └─ Prevent deletion if children exist → onDelete: 'RESTRICT'
+```
+
+---
+
+### Real-World NestJS Implementation
+
+This section shows a complete, production-ready implementation of One-to-Many relationship using the User ↔ Tweet example.
+
+---
+
+#### Complete File Structure
+
+```
+src/app/
+├── users/
+│   ├── entities/
+│   │   └── user.entity.ts
+│   ├── users.service.ts
+│   └── users.module.ts
+├── tweet/
+│   ├── entities/
+│   │   └── tweet.entity.ts
+│   ├── dto/
+│   │   ├── create-tweet.dto.ts
+│   │   └── update-tweet.dto.ts
+│   ├── tweet.controller.ts
+│   ├── tweet.service.ts
+│   └── tweet.module.ts
+```
+
+---
+
+#### 1. Entity Definitions
+
+##### ✅ CORRECT Implementation
+
+```typescript
+// src/app/users/entities/user.entity.ts
+import { Tweet } from 'src/app/tweet/entities/tweet.entity';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  OneToMany,
+  CreateDateColumn,
+  UpdateDateColumn,
+  DeleteDateColumn,
+} from 'typeorm';
+
+@Entity()
+export class User {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ unique: true })
+  email: string;
+
+  @Column({ unique: true })
+  username: string;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
+
+  @DeleteDateColumn()
+  deletedAt: Date;
+
+  // ✅ CORRECT: With cascade for convenience
+  @OneToMany(() => Tweet, (tweet) => tweet.user, {
+    cascade: ['insert', 'update']  // Enable nested saves
+  })
+  tweets: Tweet[];
+}
+```
+
+```typescript
+// src/app/tweet/entities/tweet.entity.ts
+import { User } from 'src/app/users/entities/user.entity';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  ManyToOne,
+  JoinColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+  DeleteDateColumn,
+  Index,
+} from 'typeorm';
+
+@Entity()
+@Index(['user'])  // ✅ Index for JOIN performance
+export class Tweet {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ type: 'varchar', length: 100 })
+  title: string;
+
+  @Column({ type: 'varchar', length: 300 })
+  content: string;
+
+  @Column({ type: 'varchar', length: 200 })
+  image: string;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
+
+  @DeleteDateColumn()
+  deletedAt: Date;
+
+  // ✅ CORRECT: Required relation with database cascade
+  @ManyToOne(() => User, (user) => user.tweets, {
+    nullable: false,       // Tweet must have a user
+    onDelete: 'CASCADE',   // Database-level cascade
+  })
+  @JoinColumn({ name: 'userId' })
+  user: User;
+}
+```
+
+##### ❌ WRONG Implementation
+
+```typescript
+// ❌ BAD: Missing cascade option
+@Entity()
+export class User {
+  @OneToMany(() => Tweet, (tweet) => tweet.user)  // No cascade!
+  tweets: Tweet[];
+  // Won't be able to create tweets with user
+}
+
+// ❌ BAD: No index on foreign key
+@Entity()  // Missing @Index(['user'])
+export class Tweet {
+  @ManyToOne(() => User, (user) => user.tweets, {
+    nullable: false,
+    onDelete: 'CASCADE',
+  })
+  @JoinColumn()  // Missing explicit column name
+  user: User;
+}
+
+// ❌ BAD: Using both cascade methods
+@Entity()
+export class Tweet {
+  @ManyToOne(() => User, (user) => user.tweets, {
+    onDelete: 'CASCADE'  // Database cascade
+  })
+  user: User;
+}
+@Entity()
+export class User {
+  @OneToMany(() => Tweet, (tweet) => tweet.user, {
+    cascade: ['remove']  // ❌ Conflicts with database cascade!
+  })
+  tweets: Tweet[];
+}
+
+// ❌ BAD: Nullable when it should be required
+@Entity()
+export class Tweet {
+  @ManyToOne(() => User, {
+    nullable: true  // ❌ Tweet without user doesn't make sense
+  })
+  user: User;
+}
+```
+
+---
+
+#### 2. DTO Definitions
+
+##### ✅ CORRECT Implementation
+
+```typescript
+// src/app/tweet/dto/create-tweet.dto.ts
+import { IsNotEmpty, IsUUID, MaxLength, MinLength } from 'class-validator';
+
+export class CreateTweetDto {
+  @IsNotEmpty()
+  @MinLength(10)
+  @MaxLength(100)
+  title: string;
+
+  @IsNotEmpty()
+  @MinLength(20)
+  @MaxLength(300)
+  content: string;
+
+  @IsNotEmpty()
+  image: string;
+
+  // ✅ CORRECT: Use foreign key ID, not full entity
+  @IsNotEmpty()
+  @IsUUID('4', { message: 'userId must be a valid UUID' })
+  userId: string;
+}
+```
+
+```typescript
+// src/app/tweet/dto/update-tweet.dto.ts
+import { OmitType, PartialType } from '@nestjs/mapped-types';
+import { CreateTweetDto } from './create-tweet.dto';
+
+// ✅ CORRECT: Exclude userId from updates
+export class UpdateTweetDto extends PartialType(
+  OmitType(CreateTweetDto, ['userId'] as const)
+) {}
+```
+
+##### ❌ WRONG Implementation
+
+```typescript
+// ❌ BAD: Using full entity instead of ID
+import { User } from '../users/entities/user.entity';
+
+export class CreateTweetDto {
+  @IsNotEmpty()
+  title: string;
+
+  @IsNotEmpty()
+  content: string;
+
+  // ❌ BAD: Should be userId: string
+  user: User;
+}
+
+// ❌ BAD: Missing UUID validation
+export class CreateTweetDto {
+  @IsNotEmpty()
+  userId: string;  // ❌ Should validate UUID format
+}
+
+// ❌ BAD: Allowing userId to be changed
+export class UpdateTweetDto extends PartialType(CreateTweetDto) {
+  // ❌ Includes userId - user can change tweet ownership!
+}
+```
+
+---
+
+#### 3. Service Implementation
+
+##### ✅ CORRECT Implementation
+
+```typescript
+// src/app/tweet/tweet.service.ts
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Tweet } from './entities/tweet.entity';
+import { User } from '../users/entities/user.entity';
+import { CreateTweetDto } from './dto/create-tweet.dto';
+import { UpdateTweetDto } from './dto/update-tweet.dto';
+
+@Injectable()
+export class TweetService {
+  constructor(
+    @InjectRepository(Tweet)
+    private readonly tweetRepository: Repository<Tweet>,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
+  ) {}
+
+  // ✅ CORRECT: Validate user exists before creating
+  async create(createTweetDto: CreateTweetDto) {
+    // 1. Find the user
+    const user = await this.userRepository.findOneBy({
+      id: createTweetDto.userId,
+    });
+
+    // 2. Validate user exists
+    if (!user) {
+      throw new NotFoundException(
+        `User with ID ${createTweetDto.userId} not found`
+      );
+    }
+
+    // 3. Create tweet
+    const tweet = this.tweetRepository.create({
+      ...createTweetDto,
+      user,
+    });
+
+    // 4. Save and return
+    return this.tweetRepository.save(tweet);
+  }
+
+  // ✅ CORRECT: Load relations explicitly
+  async findAll() {
+    return this.tweetRepository.find({
+      relations: ['user'],
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  // ✅ CORRECT: Separate method for filtering by user
+  async findByUser(userId: string) {
+    // Validate user exists
+    const user = await this.userRepository.findOneBy({ id: userId });
+    if (!user) {
+      throw new NotFoundException(`User with ID ${userId} not found`);
+    }
+
+    return this.tweetRepository.find({
+      where: { user: { id: userId } },
+      relations: ['user'],
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  // ✅ CORRECT: Load relation for single tweet
+  async findOne(id: string) {
+    const tweet = await this.tweetRepository.findOne({
+      where: { id },
+      relations: ['user'],
+    });
+
+    if (!tweet) {
+      throw new NotFoundException(`Tweet with ID ${id} not found`);
+    }
+
+    return tweet;
+  }
+
+  // ✅ CORRECT: Update without changing user
+  async update(id: string, updateTweetDto: UpdateTweetDto) {
+    // Check if tweet exists
+    await this.findOne(id);
+
+    // Update (userId not included in DTO)
+    await this.tweetRepository.update({ id }, updateTweetDto);
+
+    // Return updated tweet
+    return this.findOne(id);
+  }
+
+  // ✅ CORRECT: Simple delete (cascade handled by database)
+  async remove(id: string) {
+    const tweet = await this.findOne(id);
+    return this.tweetRepository.remove(tweet);
+  }
+}
+```
+
+##### ❌ WRONG Implementation
+
+```typescript
+// ❌ BAD: No user validation
+@Injectable()
+export class TweetService {
+  async create(createTweetDto: CreateTweetDto) {
+    const user = await this.userRepository.findOneBy({
+      id: createTweetDto.userId,
+    });
+
+    // ❌ No check if user is null!
+    const tweet = this.tweetRepository.create({
+      ...createTweetDto,
+      user,  // Could be null - will crash!
+    });
+
+    return this.tweetRepository.save(tweet);
+  }
+
+  // ❌ BAD: Not loading relations
+  async findAll() {
+    return this.tweetRepository.find();
+    // user property will be undefined!
+  }
+
+  // ❌ BAD: Mixing concerns in one method
+  async findAll(userId?: string) {
+    if (userId) {
+      // Complex logic mixing filtering and general query
+      return this.tweetRepository.find({
+        where: { user: { id: userId } },
+        relations: ['user'],
+      });
+    }
+    return this.tweetRepository.find({ relations: ['user'] });
+    // Better to have separate methods
+  }
+
+  // ❌ BAD: Not returning updated entity
+  async update(id: string, updateTweetDto: UpdateTweetDto) {
+    return this.tweetRepository.update({ id }, updateTweetDto);
+    // Returns { affected: 1 }, not the tweet!
+  }
+
+  // ❌ BAD: Using delete() instead of remove()
+  async remove(id: string) {
+    return this.tweetRepository.delete({ id });
+    // Bypasses entity hooks and soft delete
+  }
+}
+```
+
+---
+
+#### 4. Controller Implementation
+
+##### ✅ CORRECT Implementation
+
+```typescript
+// src/app/tweet/tweet.controller.ts
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  ParseUUIDPipe,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
+import { TweetService } from './tweet.service';
+import { CreateTweetDto } from './dto/create-tweet.dto';
+import { UpdateTweetDto } from './dto/update-tweet.dto';
+
+@Controller('tweets')
+export class TweetController {
+  constructor(private readonly tweetService: TweetService) {}
+
+  // ✅ CORRECT: Validate DTO
+  @Post()
+  @HttpCode(HttpStatus.CREATED)
+  create(@Body() createTweetDto: CreateTweetDto) {
+    return this.tweetService.create(createTweetDto);
+  }
+
+  // ✅ CORRECT: Get all tweets
+  @Get()
+  findAll() {
+    return this.tweetService.findAll();
+  }
+
+  // ✅ CORRECT: Separate endpoint for filtering
+  @Get('user/:userId')
+  findByUser(
+    @Param('userId', ParseUUIDPipe) userId: string
+  ) {
+    return this.tweetService.findByUser(userId);
+  }
+
+  // ✅ CORRECT: Validate UUID in param
+  @Get(':id')
+  findOne(@Param('id', ParseUUIDPipe) id: string) {
+    return this.tweetService.findOne(id);
+  }
+
+  // ✅ CORRECT: Validate UUID and DTO
+  @Patch(':id')
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() updateTweetDto: UpdateTweetDto,
+  ) {
+    return this.tweetService.update(id, updateTweetDto);
+  }
+
+  // ✅ CORRECT: Returns 200 on success
+  @Delete(':id')
+  @HttpCode(HttpStatus.OK)
+  remove(@Param('id', ParseUUIDPipe) id: string) {
+    return this.tweetService.remove(id);
+  }
+}
+```
+
+##### ❌ WRONG Implementation
+
+```typescript
+// ❌ BAD: Multiple issues
+@Controller('tweet')  // ❌ Should be plural 'tweets'
+export class TweetController {
+  // ❌ BAD: No UUID validation
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.tweetService.findOne(id);
+  }
+
+  // ❌ BAD: Wrong parameter decorator
+  @Get()
+  findAll(@Param('userId') userId: string) {
+    // @Param requires route param like ':userId'
+    // This will always be undefined
+    return this.tweetService.findAll(userId);
+  }
+
+  // ❌ BAD: No HTTP status code
+  @Post()
+  create(@Body() createTweetDto: CreateTweetDto) {
+    return this.tweetService.create(createTweetDto);
+    // Returns 200 instead of 201
+  }
+
+  // ❌ BAD: Delete returns 204 by default
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.tweetService.remove(id);
+    // 204 No Content - response body ignored
+  }
+}
+```
+
+---
+
+#### 5. Module Configuration
+
+##### ✅ CORRECT Implementation
+
+```typescript
+// src/app/tweet/tweet.module.ts
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { TweetService } from './tweet.service';
+import { TweetController } from './tweet.controller';
+import { Tweet } from './entities/tweet.entity';
+import { User } from '../users/entities/user.entity';
+import { UsersModule } from '../users/users.module';
+
+@Module({
+  imports: [
+    TypeOrmModule.forFeature([Tweet, User]),  // ✅ Import both entities
+    // UsersModule,  // Optional: if you need UsersService
+  ],
+  controllers: [TweetController],
+  providers: [TweetService],
+  exports: [TweetService],  // ✅ Export if other modules need it
+})
+export class TweetModule {}
+```
+
+##### ❌ WRONG Implementation
+
+```typescript
+// ❌ BAD: Missing User entity import
+@Module({
+  imports: [
+    TypeOrmModule.forFeature([Tweet]),  // ❌ Missing User!
+  ],
+  controllers: [TweetController],
+  providers: [TweetService],
+})
+export class TweetModule {}
+// Error: User repository not found
+```
+
+---
+
+### Common Patterns & Best Practices
+
+#### Pattern 1: Creating Tweets with Nested User (Using Cascade)
+
+```typescript
+// In UsersService
+async createUserWithTweets(userData: CreateUserDto) {
+  const user = this.userRepository.create({
+    email: userData.email,
+    username: userData.username,
+    tweets: [
+      { title: 'My first tweet!', content: 'Hello World!', image: 'url' },
+      { title: 'Second tweet', content: 'Learning NestJS', image: 'url' },
+    ],
+  });
+
+  return this.userRepository.save(user);
+  // ✅ Both user and tweets saved (cascade: ['insert'])
+}
+```
+
+#### Pattern 2: Paginating Tweets
+
+```typescript
+async findAll(page: number = 1, limit: number = 20) {
+  const [tweets, total] = await this.tweetRepository.findAndCount({
+    relations: ['user'],
+    order: { createdAt: 'DESC' },
+    skip: (page - 1) * limit,
+    take: limit,
+  });
+
+  return {
+    data: tweets,
+    meta: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
+}
+```
+
+#### Pattern 3: Using QueryBuilder for Complex Queries
+
+```typescript
+async findTweetsWithFilters(filters: TweetFilterDto) {
+  const query = this.tweetRepository
+    .createQueryBuilder('tweet')
+    .leftJoinAndSelect('tweet.user', 'user');
+
+  if (filters.userId) {
+    query.andWhere('tweet.userId = :userId', { userId: filters.userId });
+  }
+
+  if (filters.search) {
+    query.andWhere(
+      '(tweet.title ILIKE :search OR tweet.content ILIKE :search)',
+      { search: `%${filters.search}%` }
+    );
+  }
+
+  if (filters.startDate) {
+    query.andWhere('tweet.createdAt >= :startDate', {
+      startDate: filters.startDate,
+    });
+  }
+
+  return query
+    .orderBy('tweet.createdAt', 'DESC')
+    .skip(filters.skip || 0)
+    .take(filters.limit || 20)
+    .getMany();
+}
+```
+
+#### Pattern 4: Checking Ownership Before Update/Delete
+
+```typescript
+async update(userId: string, tweetId: string, updateDto: UpdateTweetDto) {
+  const tweet = await this.tweetRepository.findOne({
+    where: { id: tweetId },
+    relations: ['user'],
+  });
+
+  if (!tweet) {
+    throw new NotFoundException(`Tweet with ID ${tweetId} not found`);
+  }
+
+  // ✅ Check ownership
+  if (tweet.user.id !== userId) {
+    throw new ForbiddenException('You can only update your own tweets');
+  }
+
+  await this.tweetRepository.update({ id: tweetId }, updateDto);
+  return this.findOne(tweetId);
+}
+```
+
+#### Pattern 5: Soft Delete with Cascade
+
+```typescript
+// Entities already have @DeleteDateColumn
+async remove(id: string) {
+  const tweet = await this.findOne(id);
+  return this.tweetRepository.softRemove(tweet);
+  // Sets deletedAt timestamp, doesn't actually delete
+}
+
+// Restore soft-deleted tweet
+async restore(id: string) {
+  await this.tweetRepository.restore({ id });
+  return this.findOne(id);
+}
+
+// Include soft-deleted in query
+async findAllIncludingDeleted() {
+  return this.tweetRepository.find({
+    relations: ['user'],
+    withDeleted: true,  // Include soft-deleted
+  });
+}
+```
+
+---
+
+### Testing Examples
+
+```typescript
+// tweet.service.spec.ts
+describe('TweetService', () => {
+  let service: TweetService;
+  let tweetRepository: Repository<Tweet>;
+  let userRepository: Repository<User>;
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        TweetService,
+        {
+          provide: getRepositoryToken(Tweet),
+          useValue: {
+            create: jest.fn(),
+            save: jest.fn(),
+            find: jest.fn(),
+            findOne: jest.fn(),
+          },
+        },
+        {
+          provide: getRepositoryToken(User),
+          useValue: {
+            findOneBy: jest.fn(),
+          },
+        },
+      ],
+    }).compile();
+
+    service = module.get<TweetService>(TweetService);
+    tweetRepository = module.get(getRepositoryToken(Tweet));
+    userRepository = module.get(getRepositoryToken(User));
+  });
+
+  describe('create', () => {
+    it('should create a tweet with valid user', async () => {
+      const createDto = {
+        title: 'Test Tweet',
+        content: 'Test Content',
+        image: 'test.jpg',
+        userId: 'user-uuid',
+      };
+
+      const mockUser = { id: 'user-uuid', email: 'test@example.com' };
+      const mockTweet = { ...createDto, user: mockUser, id: 'tweet-uuid' };
+
+      jest.spyOn(userRepository, 'findOneBy').mockResolvedValue(mockUser as User);
+      jest.spyOn(tweetRepository, 'create').mockReturnValue(mockTweet as Tweet);
+      jest.spyOn(tweetRepository, 'save').mockResolvedValue(mockTweet as Tweet);
+
+      const result = await service.create(createDto);
+
+      expect(userRepository.findOneBy).toHaveBeenCalledWith({ id: createDto.userId });
+      expect(tweetRepository.create).toHaveBeenCalledWith({
+        ...createDto,
+        user: mockUser,
+      });
+      expect(result).toEqual(mockTweet);
+    });
+
+    it('should throw NotFoundException if user not found', async () => {
+      const createDto = {
+        title: 'Test',
+        content: 'Content',
+        image: 'img.jpg',
+        userId: 'invalid-uuid',
+      };
+
+      jest.spyOn(userRepository, 'findOneBy').mockResolvedValue(null);
+
+      await expect(service.create(createDto)).rejects.toThrow(NotFoundException);
+    });
+  });
+});
+```
+
+---
+
+### Quick Reference Checklist
+
+When implementing One-to-Many relationships:
+
+**Entities:**
+- [ ] `@ManyToOne` on the "many" side with `nullable: false` and `onDelete: 'CASCADE'`
+- [ ] `@OneToMany` on the "one" side with `cascade: ['insert', 'update']`
+- [ ] `@Index()` on foreign key column for performance
+- [ ] Both sides have inverse relation callbacks
+
+**DTOs:**
+- [ ] Use foreign key ID (`userId: string`), not full entity
+- [ ] Validate UUID format with `@IsUUID('4')`
+- [ ] Exclude foreign key from update DTOs with `OmitType`
+
+**Service:**
+- [ ] Validate foreign entity exists before creating
+- [ ] Throw `NotFoundException` if not found
+- [ ] Load relations explicitly with `relations: []`
+- [ ] Return full entity from update methods
+
+**Controller:**
+- [ ] Use `ParseUUIDPipe` for UUID parameters
+- [ ] Set appropriate HTTP status codes
+- [ ] Separate endpoints for different queries
+- [ ] Use proper plural naming (`/tweets` not `/tweet`)
+
+**Module:**
+- [ ] Import both entities in `TypeOrmModule.forFeature([])`
+- [ ] Export service if other modules need it
 
 ---
 

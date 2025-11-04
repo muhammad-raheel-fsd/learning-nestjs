@@ -1,9 +1,11 @@
 import { Profile } from 'src/app/profile/entities/profile.entity';
+import { Tweet } from 'src/app/tweet/entities/tweet.entity';
 import {
   Column,
   CreateDateColumn,
   DeleteDateColumn,
   Entity,
+  OneToMany,
   // JoinColumn,
   OneToOne,
   PrimaryGeneratedColumn,
@@ -45,4 +47,7 @@ export class User {
   })
   // @JoinColumn() // Owning side of the one-to-one relationship that contains the foreign key e.g. User table contains foreign key of Profile
   profile: Profile;
+
+  @OneToMany(() => Tweet, (tweet) => tweet.user)
+  tweets: Tweet[];
 }

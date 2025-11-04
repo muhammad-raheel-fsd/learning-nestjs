@@ -1,11 +1,23 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+} from '@nestjs/common';
 import { TweetService } from './tweet.service';
 import { CreateTweetDto } from './dto/create-tweet.dto';
 import { UpdateTweetDto } from './dto/update-tweet.dto';
+// import { UsersService } from '../users/users.service';
 
 @Controller('tweet')
 export class TweetController {
-  constructor(private readonly tweetService: TweetService) {}
+  constructor(
+    private readonly tweetService: TweetService,
+    // private readonly usersService: UsersService,
+  ) {}
 
   @Post()
   create(@Body() createTweetDto: CreateTweetDto) {
@@ -13,22 +25,22 @@ export class TweetController {
   }
 
   @Get()
-  findAll() {
-    return this.tweetService.findAll();
+  findAll(@Param('userId') userId: string) {
+    return this.tweetService.findAll(userId);
   }
 
   @Get(':id')
   findOne(@Param('id') id: string) {
-    return this.tweetService.findOne(+id);
+    return this.tweetService.findOne(id);
   }
 
   @Patch(':id')
   update(@Param('id') id: string, @Body() updateTweetDto: UpdateTweetDto) {
-    return this.tweetService.update(+id, updateTweetDto);
+    return this.tweetService.update(id, updateTweetDto);
   }
 
   @Delete(':id')
   remove(@Param('id') id: string) {
-    return this.tweetService.remove(+id);
+    return this.tweetService.remove(id);
   }
 }
