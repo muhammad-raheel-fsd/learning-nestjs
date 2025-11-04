@@ -20,46 +20,36 @@ export class UsersService {
 
   async create(createUserDto: CreateUserDto) {
     createUserDto.profile = createUserDto.profile ?? {};
-    const profile = this.profileRespository.create(createUserDto.profile);
-    await this.profileRespository.save(profile);
     const user = this.userRepository.create(createUserDto);
-    user.profile = profile;
     return this.userRepository.save(user);
   }
 
   // findAll now checks authentication using AuthService
   findAll() {
     // Simulating authentication check
-    const authCheck = this.authService.findOne(1); // Check if auth exists
-    return {
-      message: 'Authenticated user can view all users',
-      authCheck,
-      users: ['user1', 'user2', 'user3'],
-    };
+    // const authCheck = this.authService.findOne(1); // Check if auth exists
+    return this.userRepository.find({
+      relations: ['profile'],
+    });
   }
 
   async findOne(id: string) {
+    // return this.userRepository.findOne({
+    //   where: { id },
+    //   relations: ['profile'],
+    // });
+
     return this.userRepository.findOne({
       where: { id },
       relations: ['profile'],
     });
   }
 
-  async update(id: number, updateUserDto: UpdateUserDto) {
-    return `This action updates a #${id} user`;
+  async update(id: string, updateUserDto: UpdateUserDto) {
+    return this.userRepository.update({ id }, updateUserDto);
   }
 
-  remove(id: number) {
-    return `This action removes a #${id} user`;
+  remove(id: string) {
+    return this.userRepository.delete({ id });
   }
 }
-
-// {
-//   "profile": {
-//     "firstName": "Jane",
-//     "lastName": "Doe",
-//     "dob": "1990-05-15T00:00:00.000Z",
-//     "bio": "Software engineer with 10 years of experience building APIs and web applications.",
-//     "profilePicture": "https://example.com/avatars/jane.jpg",
-//   }
-// }

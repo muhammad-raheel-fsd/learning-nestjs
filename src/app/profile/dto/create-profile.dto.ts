@@ -5,6 +5,7 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { User } from 'src/app/users/entities/user.entity';
 import { Gender } from 'src/shared/types';
 
 export class CreateProfileDto {
@@ -45,4 +46,7 @@ export class CreateProfileDto {
     message: 'Gender must be male, female or other',
   })
   gender: Gender;
+
+  @IsOptional()
+  user: User;
 }

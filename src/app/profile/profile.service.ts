@@ -17,11 +17,16 @@ export class ProfileService {
   }
 
   findAll() {
-    return `This action returns all profile`;
+    return this.profileRepository.find({
+      relations: ['user'],
+    });
   }
 
-  findOne(id: number) {
-    return `This action returns a #${id} profile`;
+  findOne(id: string) {
+    return this.profileRepository.findOne({
+      where: { id },
+      relations: ['user'],
+    });
   }
 
   update(id: number, updateProfileDto: UpdateProfileDto) {

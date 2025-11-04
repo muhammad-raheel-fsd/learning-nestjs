@@ -4,7 +4,7 @@ import {
   CreateDateColumn,
   DeleteDateColumn,
   Entity,
-  JoinColumn,
+  // JoinColumn,
   OneToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
@@ -37,17 +37,12 @@ export class User {
   @DeleteDateColumn()
   deletedAt: Date;
 
-  @OneToOne(() => Profile)
-  @JoinColumn()
+  @OneToOne(() => Profile, (profile) => profile.user, {
+    cascade: ['insert', 'update'], // Enable cascade crud operations from user to related profile e.g creates profile when creating user
+
+    // cascade: ['insert', 'update'], // Enable only insert and update cascade operations
+    // eager: true, // Automatically load profile relation when fetching user, but not recommended for large relations i.e. performance issues
+  })
+  // @JoinColumn() // Owning side of the one-to-one relationship that contains the foreign key e.g. User table contains foreign key of Profile
   profile: Profile;
 }
-
-// {
-//   "firstName": "Jane",
-//   "lastName": "Doe",
-//   "username": "janedoe",
-//   "email": "jane.doe@example.com",
-//   "gender": "female",
-//   "password": "s3cr3tPass",
-//   "confirmPassword": "s3cr3tPass"
-// }
