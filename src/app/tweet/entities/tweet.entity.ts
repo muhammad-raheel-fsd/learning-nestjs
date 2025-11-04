@@ -4,6 +4,7 @@ import {
   CreateDateColumn,
   DeleteDateColumn,
   Entity,
+  Index,
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
@@ -11,6 +12,7 @@ import {
 } from 'typeorm';
 
 @Entity()
+@Index(['user']) // Index on foreign key for JOIN performance
 export class Tweet {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -42,6 +44,6 @@ export class Tweet {
     onDelete: 'CASCADE',
     // eager: true, // Automatically load user relation when fetching tweet, but not recommended for large relations i.e. performance issues
   })
-  @JoinColumn()
+  @JoinColumn({ name: 'userId' }) // Explicit column name
   user: User;
 }

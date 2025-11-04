@@ -48,6 +48,8 @@ export class User {
   // @JoinColumn() // Owning side of the one-to-one relationship that contains the foreign key e.g. User table contains foreign key of Profile
   profile: Profile;
 
-  @OneToMany(() => Tweet, (tweet) => tweet.user)
+  @OneToMany(() => Tweet, (tweet) => tweet.user, {
+    cascade: ['insert', 'update'], // Enable nested saves
+  })
   tweets: Tweet[];
 }

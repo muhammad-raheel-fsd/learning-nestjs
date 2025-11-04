@@ -1,4 +1,7 @@
-import { PartialType } from '@nestjs/mapped-types';
+import { OmitType, PartialType } from '@nestjs/mapped-types';
 import { CreateTweetDto } from './create-tweet.dto';
 
-export class UpdateTweetDto extends PartialType(CreateTweetDto) {}
+// Exclude userId from updates - can't change tweet ownership
+export class UpdateTweetDto extends PartialType(
+  OmitType(CreateTweetDto, ['userId'] as const),
+) {}

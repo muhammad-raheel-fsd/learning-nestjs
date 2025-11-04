@@ -1,4 +1,4 @@
-import { IsNotEmpty, MaxLength, MinLength } from 'class-validator';
+import { IsNotEmpty, IsUUID, MaxLength, MinLength } from 'class-validator';
 
 export class CreateTweetDto {
   @IsNotEmpty()
@@ -15,5 +15,6 @@ export class CreateTweetDto {
   image: string;
 
   @IsNotEmpty()
+  @IsUUID('4', { message: 'userId must be a valid UUID' })
   userId: string;
 }
