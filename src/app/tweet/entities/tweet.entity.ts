@@ -50,9 +50,23 @@ export class Tweet {
   @JoinColumn({ name: 'userId' }) // Explicit column name
   user: User;
 
-  @ManyToMany(() => Hashtag) // Many-to-many relation between Tweet and Hashtag unidirectional
-  @JoinTable() // Owning side of the many-to-many relationship that contains the junction table
+  @ManyToMany(() => Hashtag, {
+    cascade: ['insert'], // Auto-insert new hashtags when saving tweet
+    eager: false, // Don't auto-load hashtags (load explicitly when needed)
+  })
+  @JoinTable({
+    name: 'tweet_hashtags', // Junction table name
+    joinColumn: {
+      name: 'tweetId',
+      referencedColumnName: 'id',
+    },
+    inverseJoinColumn: {
+      name: 'hashtagId',
+      referencedColumnName: 'id',
+    },
+  }) // Owning side of many-to-many relationship
   hashtags: Hashtag[];
 
-  // We don't need to cascade delete hashtags it automatically when a tweet is deleted because hashtags can be shared across multiple tweets
+  // Note: No cascade delete - hashtags are shared resources across multiple tweets
+  // Junction table records automatically deleted when tweet deleted (via FK ON DELETE CASCADE)
 }

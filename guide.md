@@ -70,7 +70,17 @@ A comprehensive guide to understanding TypeORM relationships with practical exam
 - [Quick Reference Checklist](#quick-reference-checklist)
 
 ### 4. [Many-to-Many](#many-to-many)
-*(Coming soon)*
+- [Example: Tweet ↔ Hashtags (Unidirectional)](#example-tweet--hashtags-unidirectional)
+- [Database Schema](#database-schema-2)
+- [Understanding the Relationship](#understanding-the-relationship-1)
+- [Entity Configuration](#entity-configuration-2)
+- [Critical Rules for Many-to-Many](#critical-rules-for-many-to-many)
+- [Cascade Operations](#cascade-operations)
+- [Loading Relations](#loading-relations-1)
+- [Complete Working Example](#complete-working-example-2)
+- [Bidirectional Many-to-Many (Optional)](#bidirectional-many-to-many-optional)
+- [Best Practices](#best-practices-3)
+- [Quick Reference Checklist](#quick-reference-checklist-1)
 
 ### 5. [Additional Resources](#additional-resources)
 
@@ -4875,7 +4885,747 @@ When implementing One-to-Many relationships:
 
 ## Many-to-Many
 
-*Coming soon...*
+Many-to-Many relationships occur when **multiple instances of entity A can relate to multiple instances of entity B, and vice versa**. Example: Tweets can have multiple hashtags, and hashtags can be used in multiple tweets.
+
+---
+
+### Example: Tweet ↔ Hashtags (Unidirectional)
+
+---
+
+### Database Schema
+
+```sql
+-- Tweet table
+CREATE TABLE "tweet" (
+  "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  "title" varchar(100) NOT NULL,
+  "content" varchar(300) NOT NULL,
+  "image" varchar(200) NOT NULL,
+  "userId" uuid NOT NULL,
+  "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
+  "updatedAt" TIMESTAMP NOT NULL DEFAULT now(),
+  "deletedAt" TIMESTAMP NULL,
+
+  CONSTRAINT "FK_tweet_user" FOREIGN KEY ("userId")
+    REFERENCES "user"("id") ON DELETE CASCADE
+);
+
+-- Hashtag table
+CREATE TABLE "hashtag" (
+  "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  "name" varchar(50) UNIQUE NOT NULL
+);
+
+-- Junction table (created automatically by TypeORM)
+CREATE TABLE "tweet_hashtags" (
+  "tweetId" uuid NOT NULL,
+  "hashtagId" uuid NOT NULL,
+
+  PRIMARY KEY ("tweetId", "hashtagId"),  -- Composite primary key
+
+  CONSTRAINT "FK_tweet_hashtags_tweet" FOREIGN KEY ("tweetId")
+    REFERENCES "tweet"("id") ON DELETE CASCADE,
+
+  CONSTRAINT "FK_tweet_hashtags_hashtag" FOREIGN KEY ("hashtagId")
+    REFERENCES "hashtag"("id") ON DELETE CASCADE
+);
+
+-- Indexes on foreign keys (created automatically by TypeORM)
+CREATE INDEX "IDX_tweet_hashtags_tweetId" ON "tweet_hashtags"("tweetId");
+CREATE INDEX "IDX_tweet_hashtags_hashtagId" ON "tweet_hashtags"("hashtagId");
+```
+
+**Key Points:**
+- Junction table `tweet_hashtags` connects tweets and hashtags
+- Composite primary key prevents duplicate relationships
+- Foreign keys with CASCADE delete junction records when parent deleted
+- Hashtag entity itself is NOT deleted (shared resource)
+
+---
+
+### Understanding the Relationship
+
+**Unidirectional vs Bidirectional:**
+
+| Type | Definition | Access Pattern | Use Case |
+|------|-----------|----------------|----------|
+| **Unidirectional** | Relation defined on ONE side only | Can only query from owning side | Simpler, less coupling |
+| **Bidirectional** | Relation defined on BOTH sides | Can query from either direction | Full flexibility |
+
+**Our Implementation: Unidirectional**
+- Tweet knows its hashtags: ✅ `tweet.hashtags`
+- Hashtag doesn't know its tweets: ❌ `hashtag.tweets` not defined
+- Why? Hashtags are shared resources, typically queried by name, not by tweets
+
+---
+
+### Entity Configuration
+
+#### ✅ Tweet Entity (Owning Side)
+
+```typescript
+// src/app/tweet/entities/tweet.entity.ts
+import { Hashtag } from 'src/app/hashtags/entities/hashtag.entity';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  ManyToMany,
+  JoinTable,
+} from 'typeorm';
+
+@Entity()
+export class Tweet {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ type: 'varchar', length: 100 })
+  title: string;
+
+  @Column({ type: 'varchar', length: 300 })
+  content: string;
+
+  // ✅ CORRECT: ManyToMany with explicit JoinTable configuration
+  @ManyToMany(() => Hashtag, {
+    cascade: ['insert'],  // Auto-insert new hashtags
+    eager: false,         // Don't auto-load (explicit is better)
+  })
+  @JoinTable({
+    name: 'tweet_hashtags',  // Junction table name
+    joinColumn: {
+      name: 'tweetId',
+      referencedColumnName: 'id',
+    },
+    inverseJoinColumn: {
+      name: 'hashtagId',
+      referencedColumnName: 'id',
+    },
+  })
+  hashtags: Hashtag[];
+
+  // Note: No cascade delete - hashtags are shared resources
+  // Junction table records auto-deleted via FK CASCADE
+}
+```
+
+#### ✅ Hashtag Entity (Inverse Side - None)
+
+```typescript
+// src/app/hashtags/entities/hashtag.entity.ts
+import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+
+@Entity()
+export class Hashtag {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ type: 'varchar', length: 50, unique: true })
+  name: string;
+
+  // No reference to Tweet - truly unidirectional ✅
+}
+```
+
+---
+
+### Critical Rules for Many-to-Many
+
+#### Rule 1: @JoinTable is Required
+
+```typescript
+// ❌ WRONG - Missing @JoinTable
+@Entity()
+export class Tweet {
+  @ManyToMany(() => Hashtag)
+  hashtags: Hashtag[];  // Error: JoinTable required!
+}
+
+// ✅ CORRECT
+@Entity()
+export class Tweet {
+  @ManyToMany(() => Hashtag)
+  @JoinTable()  // Required for many-to-many!
+  hashtags: Hashtag[];
+}
+```
+
+**Why @JoinTable?**
+- Tells TypeORM which side "owns" the relationship
+- Creates the junction table
+- Only ONE side can have @JoinTable
+
+---
+
+#### Rule 2: @JoinTable Only on ONE Side
+
+```typescript
+// ❌ WRONG - @JoinTable on both sides (bidirectional)
+@Entity()
+export class Tweet {
+  @ManyToMany(() => Hashtag)
+  @JoinTable()  // ❌
+  hashtags: Hashtag[];
+}
+
+@Entity()
+export class Hashtag {
+  @ManyToMany(() => Tweet)
+  @JoinTable()  // ❌ Error: Only one side can have JoinTable!
+  tweets: Tweet[];
+}
+
+// ✅ CORRECT - @JoinTable on ONE side only
+@Entity()
+export class Tweet {
+  @ManyToMany(() => Hashtag, (hashtag) => hashtag.tweets)
+  @JoinTable()  // ✅ Owning side
+  hashtags: Hashtag[];
+}
+
+@Entity()
+export class Hashtag {
+  @ManyToMany(() => Tweet, (tweet) => tweet.hashtags)
+  // No @JoinTable here - inverse side
+  tweets: Tweet[];
+}
+```
+
+---
+
+#### Rule 3: Explicit Junction Table Configuration (Recommended)
+
+```typescript
+// ⚠️ OK but not ideal - TypeORM auto-generates names
+@JoinTable()
+
+// ✅ BETTER - Explicit configuration
+@JoinTable({
+  name: 'tweet_hashtags',  // Clear table name
+  joinColumn: {
+    name: 'tweetId',
+    referencedColumnName: 'id'
+  },
+  inverseJoinColumn: {
+    name: 'hashtagId',
+    referencedColumnName: 'id'
+  }
+})
+```
+
+**Why explicit?**
+- Predictable table/column names
+- Clearer migrations
+- Better database documentation
+
+---
+
+#### Rule 4: Use save() for Updates, NOT update()
+
+```typescript
+// ❌ WRONG - update() doesn't handle many-to-many relations
+async updateTweet(id: string, hashtags: Hashtag[]) {
+  await this.tweetRepository.update({ id }, { hashtags });
+  // Junction table NOT updated! ❌
+}
+
+// ✅ CORRECT - save() properly handles many-to-many
+async updateTweet(id: string, hashtags: Hashtag[]) {
+  const tweet = await this.tweetRepository.findOne({
+    where: { id },
+    relations: ['hashtags']
+  });
+
+  tweet.hashtags = hashtags;  // Replace hashtags
+  await this.tweetRepository.save(tweet);  // Updates junction table ✅
+}
+```
+
+---
+
+### Cascade Operations
+
+#### cascade: ['insert'] - Auto-Create Related Entities
+
+```typescript
+@ManyToMany(() => Hashtag, {
+  cascade: ['insert'],  // Create new hashtags automatically
+})
+@JoinTable()
+hashtags: Hashtag[];
+
+// Usage
+const tweet = tweetRepository.create({
+  title: 'My Tweet',
+  hashtags: [
+    { name: 'typescript' },  // Will be created automatically
+    { name: 'nestjs' }       // Will be created automatically
+  ]
+});
+
+await tweetRepository.save(tweet);
+// Both tweet AND new hashtags saved in one operation! ✅
+
+// Generated SQL:
+// START TRANSACTION
+// INSERT INTO hashtag (name) VALUES ('typescript') RETURNING id
+// INSERT INTO hashtag (name) VALUES ('nestjs') RETURNING id
+// INSERT INTO tweet (title) VALUES ('My Tweet') RETURNING id
+// INSERT INTO tweet_hashtags (tweetId, hashtagId) VALUES ($1, $2)
+// INSERT INTO tweet_hashtags (tweetId, hashtagId) VALUES ($1, $3)
+// COMMIT
+```
+
+---
+
+#### No Cascade Delete for Shared Resources
+
+```typescript
+@ManyToMany(() => Hashtag, {
+  // NO cascade: ['remove'] - hashtags are shared!
+})
+@JoinTable({
+  // FK CASCADE handles junction table cleanup
+})
+hashtags: Hashtag[];
+```
+
+**Why no cascade delete?**
+- Hashtags used by multiple tweets
+- Deleting tweet shouldn't delete hashtags
+- Junction table records auto-deleted by FK CASCADE
+
+**What gets deleted:**
+```sql
+-- When you delete a tweet:
+DELETE FROM tweet WHERE id = 'tweet-123';
+
+-- Automatically triggered by FK CASCADE:
+DELETE FROM tweet_hashtags WHERE tweetId = 'tweet-123';
+
+-- Hashtag entity remains:
+SELECT * FROM hashtag;  -- ✅ Still there
+```
+
+---
+
+### Loading Relations
+
+#### 1. Explicit Loading with relations
+
+```typescript
+// ❌ Relations NOT loaded by default
+const tweet = await tweetRepository.findOne({
+  where: { id: tweetId }
+});
+console.log(tweet.hashtags);  // undefined ❌
+
+// ✅ CORRECT - Load explicitly
+const tweet = await tweetRepository.findOne({
+  where: { id: tweetId },
+  relations: ['hashtags']  // Load hashtags
+});
+console.log(tweet.hashtags);  // Array of hashtags ✅
+```
+
+#### 2. QueryBuilder with leftJoinAndSelect
+
+```typescript
+const tweets = await tweetRepository
+  .createQueryBuilder('tweet')
+  .leftJoinAndSelect('tweet.hashtags', 'hashtag')
+  .where('hashtag.name = :name', { name: 'nestjs' })
+  .getMany();
+
+// SQL Generated:
+// SELECT tweet.*, hashtag.*
+// FROM tweet
+// LEFT JOIN tweet_hashtags ON tweet.id = tweet_hashtags.tweetId
+// LEFT JOIN hashtag ON tweet_hashtags.hashtagId = hashtag.id
+// WHERE hashtag.name = 'nestjs'
+```
+
+#### 3. Eager Loading (Use Carefully)
+
+```typescript
+@ManyToMany(() => Hashtag, {
+  eager: true  // Always load hashtags automatically
+})
+@JoinTable()
+hashtags: Hashtag[];
+
+// Now hashtags loaded automatically
+const tweet = await tweetRepository.findOne({
+  where: { id: tweetId }
+  // No need to specify relations
+});
+console.log(tweet.hashtags);  // ✅ Loaded
+
+// ⚠️ WARNING: Eager disabled in QueryBuilder!
+const tweets = await tweetRepository
+  .createQueryBuilder('tweet')
+  .getMany();
+console.log(tweets[0].hashtags);  // undefined! Must use leftJoinAndSelect
+```
+
+---
+
+### Complete Working Example
+
+#### 1. DTOs
+
+```typescript
+// src/app/tweet/dto/create-tweet.dto.ts
+export class CreateTweetDto {
+  @IsNotEmpty()
+  title: string;
+
+  @IsNotEmpty()
+  content: string;
+
+  @IsNotEmpty()
+  @IsUUID('4')
+  userId: string;
+
+  // ✅ Use array of IDs, not full entities
+  @IsOptional()
+  @IsUUID('4', { each: true })
+  hashtagsIds?: string[];
+}
+
+// src/app/tweet/dto/update-tweet.dto.ts
+export class UpdateTweetDto extends PartialType(
+  OmitType(CreateTweetDto, ['userId'])
+) {}
+// Includes optional hashtagsIds
+```
+
+#### 2. Service Implementation
+
+```typescript
+// src/app/tweet/tweet.service.ts
+@Injectable()
+export class TweetService {
+  constructor(
+    @InjectRepository(Tweet)
+    private tweetRepository: Repository<Tweet>,
+    private hashtagsService: HashtagsService,
+  ) {}
+
+  // ✅ CREATE - Fetch hashtags and assign
+  async create(dto: CreateTweetDto) {
+    let hashtags: Hashtag[] = [];
+
+    if (dto.hashtagsIds?.length > 0) {
+      hashtags = await this.hashtagsService.findByIds(dto.hashtagsIds);
+    }
+
+    const tweet = this.tweetRepository.create({
+      ...dto,
+      hashtags,
+    });
+
+    return this.tweetRepository.save(tweet);
+  }
+
+  // ✅ FIND ALL - Load relations explicitly
+  async findAll(userId: string) {
+    return this.tweetRepository.find({
+      where: { user: { id: userId } },
+      relations: ['user', 'hashtags'],  // Load both relations
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  // ✅ FIND ONE - Load relations
+  async findOne(id: string) {
+    return this.tweetRepository.findOne({
+      where: { id },
+      relations: ['user', 'hashtags'],
+    });
+  }
+
+  // ✅ UPDATE - Use save() not update()
+  async update(id: string, dto: UpdateTweetDto) {
+    // Load existing tweet with relations
+    const tweet = await this.tweetRepository.findOne({
+      where: { id },
+      relations: ['user', 'hashtags'],
+    });
+
+    if (!tweet) {
+      throw new NotFoundException('Tweet not found');
+    }
+
+    // Update hashtags if provided
+    if (dto.hashtagsIds) {
+      if (dto.hashtagsIds.length > 0) {
+        tweet.hashtags = await this.hashtagsService.findByIds(
+          dto.hashtagsIds
+        );
+      } else {
+        tweet.hashtags = [];  // Clear all hashtags
+      }
+    }
+
+    // Update other fields
+    Object.assign(tweet, {
+      title: dto.title ?? tweet.title,
+      content: dto.content ?? tweet.content,
+      image: dto.image ?? tweet.image,
+    });
+
+    // Use save() to update many-to-many relations
+    return this.tweetRepository.save(tweet);
+  }
+
+  // ✅ DELETE - Junction records auto-deleted by FK
+  async remove(id: string) {
+    return this.tweetRepository.delete({ id });
+    // tweet_hashtags records automatically deleted ✅
+    // hashtag entities remain ✅
+  }
+}
+```
+
+#### 3. Hashtags Service
+
+```typescript
+// src/app/hashtags/hashtags.service.ts
+@Injectable()
+export class HashtagsService {
+  constructor(
+    @InjectRepository(Hashtag)
+    private hashtagRepository: Repository<Hashtag>,
+  ) {}
+
+  async findByIds(ids: string[]) {
+    return this.hashtagRepository.find({
+      where: { id: In(ids) },  // Use In() operator
+    });
+  }
+
+  async findByNames(names: string[]) {
+    return this.hashtagRepository.find({
+      where: { name: In(names) },
+    });
+  }
+
+  async createIfNotExists(names: string[]): Promise<Hashtag[]> {
+    const hashtags: Hashtag[] = [];
+
+    for (const name of names) {
+      let hashtag = await this.hashtagRepository.findOne({
+        where: { name },
+      });
+
+      if (!hashtag) {
+        hashtag = await this.hashtagRepository.save({ name });
+      }
+
+      hashtags.push(hashtag);
+    }
+
+    return hashtags;
+  }
+}
+```
+
+#### 4. Module Configuration
+
+```typescript
+// tweet.module.ts
+@Module({
+  imports: [
+    TypeOrmModule.forFeature([Tweet, Hashtag]),  // Both entities
+    HashtagsModule,  // Import to use HashtagsService
+  ],
+  controllers: [TweetController],
+  providers: [TweetService],
+  exports: [TweetService],
+})
+export class TweetModule {}
+
+// hashtags.module.ts
+@Module({
+  imports: [TypeOrmModule.forFeature([Hashtag])],
+  controllers: [HashtagsController],
+  providers: [HashtagsService],
+  exports: [HashtagsService],  // ✅ Export for use in TweetModule
+})
+export class HashtagsModule {}
+```
+
+---
+
+### Bidirectional Many-to-Many (Optional)
+
+If you need to query hashtags by tweets:
+
+```typescript
+// Tweet entity (owning side)
+@Entity()
+export class Tweet {
+  @ManyToMany(() => Hashtag, (hashtag) => hashtag.tweets)
+  @JoinTable({
+    name: 'tweet_hashtags',
+    joinColumn: { name: 'tweetId' },
+    inverseJoinColumn: { name: 'hashtagId' },
+  })
+  hashtags: Hashtag[];
+}
+
+// Hashtag entity (inverse side)
+@Entity()
+export class Hashtag {
+  @ManyToMany(() => Tweet, (tweet) => tweet.hashtags)
+  // No @JoinTable on inverse side!
+  tweets: Tweet[];
+}
+
+// Now you can query both ways:
+const tweet = await tweetRepo.findOne({
+  where: { id },
+  relations: ['hashtags']
+});
+console.log(tweet.hashtags);  // ✅
+
+const hashtag = await hashtagRepo.findOne({
+  where: { name: 'nestjs' },
+  relations: ['tweets']
+});
+console.log(hashtag.tweets);  // ✅
+```
+
+---
+
+### Best Practices
+
+#### ✅ DO
+
+**1. Use Explicit Junction Table Configuration**
+```typescript
+@JoinTable({
+  name: 'tweet_hashtags',
+  joinColumn: { name: 'tweetId' },
+  inverseJoinColumn: { name: 'hashtagId' }
+})
+```
+
+**2. Use Unidirectional for Simpler Relations**
+- Less code, less coupling
+- Only add bidirectional if needed
+
+**3. Load Relations Explicitly**
+```typescript
+relations: ['hashtags']
+```
+
+**4. Use save() for Updates**
+```typescript
+tweet.hashtags = newHashtags;
+await repo.save(tweet);  // ✅
+```
+
+**5. Use Array of IDs in DTOs**
+```typescript
+hashtagsIds: string[]  // ✅ Not: hashtags: Hashtag[]
+```
+
+**6. Consider cascade: ['insert'] for Convenience**
+```typescript
+@ManyToMany(() => Hashtag, {
+  cascade: ['insert']  // Auto-create new hashtags
+})
+```
+
+---
+
+#### ❌ DON'T
+
+**1. Don't Forget @JoinTable**
+```typescript
+// ❌ Missing @JoinTable
+@ManyToMany(() => Hashtag)
+hashtags: Hashtag[];
+```
+
+**2. Don't Put @JoinTable on Both Sides**
+```typescript
+// ❌ Both have @JoinTable
+@ManyToMany(() => Hashtag)
+@JoinTable()  // Only on ONE side!
+```
+
+**3. Don't Use update() for Many-to-Many**
+```typescript
+// ❌ Doesn't update junction table
+await repo.update({ id }, { hashtags });
+
+// ✅ Use save()
+const entity = await repo.findOne({ where: { id }, relations: ['hashtags'] });
+entity.hashtags = newHashtags;
+await repo.save(entity);
+```
+
+**4. Don't Cascade Delete Shared Resources**
+```typescript
+// ❌ Bad for shared hashtags
+@ManyToMany(() => Hashtag, {
+  cascade: ['remove']  // Deletes hashtags!
+})
+```
+
+**5. Don't Use eager: true on Both Sides (Bidirectional)**
+```typescript
+// ❌ Circular loading
+@ManyToMany(() => Hashtag, { eager: true })
+hashtags: Hashtag[];
+
+@ManyToMany(() => Tweet, { eager: true })  // ❌ Infinite loop!
+tweets: Tweet[];
+```
+
+**6. Don't Forget Relations in Queries**
+```typescript
+// ❌ hashtags undefined
+const tweet = await repo.findOne({ where: { id } });
+
+// ✅ Load relations
+const tweet = await repo.findOne({
+  where: { id },
+  relations: ['hashtags']
+});
+```
+
+---
+
+### Quick Reference Checklist
+
+When implementing Many-to-Many relationships:
+
+**Entities:**
+- [ ] `@ManyToMany(() => Target)` on owning side
+- [ ] `@JoinTable({ name, joinColumn, inverseJoinColumn })` on owning side only
+- [ ] Consider `cascade: ['insert']` for auto-creating related entities
+- [ ] Set `eager: false` (explicit loading recommended)
+- [ ] No `cascade: ['remove']` if target is shared resource
+
+**DTOs:**
+- [ ] Use array of IDs (`targetIds: string[]`), not full entities
+- [ ] Validate with `@IsUUID('4', { each: true })`
+- [ ] Make optional with `@IsOptional()`
+
+**Service:**
+- [ ] Fetch related entities by IDs using `In()` operator
+- [ ] Load relations with `relations: ['target']`
+- [ ] Use `save()` for updates, NOT `update()`
+- [ ] Return full entity with relations from update methods
+
+**Module:**
+- [ ] Import both entities in `TypeOrmModule.forFeature([Entity1, Entity2])`
+- [ ] Import related module if using its service
+- [ ] Export service if other modules need it
 
 ---
 

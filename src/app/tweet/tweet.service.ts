@@ -59,15 +59,36 @@ export class TweetService {
   }
 
   async update(id: string, updateTweetDto: UpdateTweetDto) {
-    // Find all hashtags if any
-    let hashtags = [] as typeof Tweet.prototype.hashtags;
-    if (updateTweetDto.hashtagsIds && updateTweetDto.hashtagsIds.length > 0) {
-      hashtags = await this.hashtagsService.findHashtagsByIds(
-        updateTweetDto.hashtagsIds,
-      );
+    // First, find the existing tweet
+    const tweet = await this.tweetResposity.findOne({
+      where: { id },
+      relations: ['user', 'hashtags'],
+    });
+
+    if (!tweet) {
+      throw new Error('Tweet not found');
     }
 
-    return this.tweetResposity.update({ id }, { ...updateTweetDto, hashtags });
+    // Update hashtags if provided
+    if (updateTweetDto.hashtagsIds) {
+      if (updateTweetDto.hashtagsIds.length > 0) {
+        tweet.hashtags = await this.hashtagsService.findHashtagsByIds(
+          updateTweetDto.hashtagsIds,
+        );
+      } else {
+        tweet.hashtags = []; // Clear hashtags
+      }
+    }
+
+    // Update other fields
+    Object.assign(tweet, {
+      title: updateTweetDto.title ?? tweet.title,
+      content: updateTweetDto.content ?? tweet.content,
+      image: updateTweetDto.image ?? tweet.image,
+    });
+
+    // Save using save() to properly update many-to-many relations
+    return this.tweetResposity.save(tweet);
   }
 
   async remove(id: string) {
