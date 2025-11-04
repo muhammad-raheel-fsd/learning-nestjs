@@ -1,4 +1,10 @@
-import { IsNotEmpty, IsUUID, MaxLength, MinLength } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsUUID,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 export class CreateTweetDto {
   @IsNotEmpty()
@@ -17,4 +23,8 @@ export class CreateTweetDto {
   @IsNotEmpty()
   @IsUUID('4', { message: 'userId must be a valid UUID' })
   userId: string;
+
+  @IsOptional()
+  @IsUUID('4', { each: true, message: 'Each hashtagId must be a valid UUID' })
+  hashtagsIds?: string[];
 }
