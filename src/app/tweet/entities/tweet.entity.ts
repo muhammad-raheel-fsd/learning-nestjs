@@ -50,7 +50,7 @@ export class Tweet {
   @JoinColumn({ name: 'userId' }) // Explicit column name
   user: User;
 
-  @ManyToMany(() => Hashtag, {
+  @ManyToMany(() => Hashtag, (hashtag) => hashtag.tweets, {
     cascade: ['insert'], // Auto-insert new hashtags when saving tweet
     eager: false, // Don't auto-load hashtags (load explicitly when needed)
   })

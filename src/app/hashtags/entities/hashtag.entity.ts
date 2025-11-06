@@ -1,4 +1,5 @@
-import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Tweet } from 'src/app/tweet/entities/tweet.entity';
+import { Column, Entity, ManyToMany, PrimaryGeneratedColumn } from 'typeorm';
 
 @Entity()
 export class Hashtag {
@@ -7,4 +8,9 @@ export class Hashtag {
 
   @Column({ type: 'varchar', length: 50, unique: true, nullable: false })
   name: string;
+
+  @ManyToMany(() => Tweet, (tweet) => tweet.hashtags, {
+    onDelete: 'CASCADE',
+  })
+  tweets: Tweet[];
 }

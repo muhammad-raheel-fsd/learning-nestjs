@@ -43,4 +43,9 @@ export class TweetController {
   remove(@Param('id') id: string) {
     return this.tweetService.remove(id);
   }
+
+  @Delete('soft-delete/:id')
+  softDelete(@Param('id') id: string) {
+    return this.tweetService.softDelete(id);
+  }
 }

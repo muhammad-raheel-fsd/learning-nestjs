@@ -40,7 +40,3 @@ export class HashtagsController {
     return this.hashtagsService.remove(id);
   }
 }
-
-// const hashtag = {
-//   name: '#nestjs',
-// };

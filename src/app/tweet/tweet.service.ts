@@ -94,6 +94,10 @@ export class TweetService {
   async remove(id: string) {
     return this.tweetResposity.delete({ id });
   }
+
+  async softDelete(id: string) {
+    return this.tweetResposity.softDelete({ id });
+  }
 }
 
 // dummy tweet
