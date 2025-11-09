@@ -11,11 +11,13 @@ import { ProfileModule } from './profile/profile.module';
 import { TweetModule } from './tweet/tweet.module';
 import { HashtagsModule } from './hashtags/hashtags.module';
 
+const ENV = process.env.NODE_ENV;
+
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      envFilePath: !ENV ? '.env' : `.env.${ENV}`,
     }),
     UsersModule,
     BlogsModule,
@@ -26,8 +28,8 @@ import { HashtagsModule } from './hashtags/hashtags.module';
       inject: [ConfigService],
       useFactory: (configService: ConfigService): TypeOrmModuleOptions => ({
         // DB_TYPE from .env (e.g. "postgres"). cast to satisfy TypeORM union type.
-        type: configService.get<'postgres'>('DB_TYPE') || 'postgres',
-        host: configService.get<string>('POSTGRES_HOST', 'localhost'),
+        type: configService.get<'postgres'>('DB_TYPE'),
+        host: configService.get<string>('POSTGRES_HOST'),
         port: parseInt(configService.get<string>('POSTGRES_PORT', '5432'), 10),
         username: configService.get<string>('POSTGRES_USER', 'nestjs_app_user'),
         password: configService.get<string>(
