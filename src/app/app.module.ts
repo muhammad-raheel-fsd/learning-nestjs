@@ -12,6 +12,7 @@ import { TweetModule } from './tweet/tweet.module';
 import { HashtagsModule } from './hashtags/hashtags.module';
 import databaseConfig from 'src/shared/config/database.config';
 import appConfig from 'src/shared/config/appConfig';
+import envValidationSchema from 'src/shared/config/env.validation';
 
 const ENV = process.env.NODE_ENV;
 
@@ -21,6 +22,11 @@ const ENV = process.env.NODE_ENV;
       isGlobal: true,
       envFilePath: !ENV ? '.env' : `.env.${ENV}`,
       load: [appConfig, databaseConfig],
+      validationSchema: envValidationSchema,
+      validationOptions: {
+        // allowUnknown: true, // Allow other env variables not in schema
+        abortEarly: false, // Show all validation errors, not just first one
+      },
     }),
     UsersModule,
     BlogsModule,
