@@ -4394,20 +4394,64 @@ async remove(id: string) {
   // Sets deletedAt timestamp, doesn't actually delete
 }
 
+// Alternative: Using softDelete() method
+async softDelete(id: string) {
+  return this.tweetRepository.softDelete({ id });
+  // More efficient - doesn't load entity first
+}
+
 // Restore soft-deleted tweet
 async restore(id: string) {
   await this.tweetRepository.restore({ id });
   return this.findOne(id);
 }
 
-// Include soft-deleted in query
+// ⚠️ IMPORTANT: Default queries EXCLUDE soft-deleted entities
+async findOne(id: string) {
+  return this.tweetRepository.findOne({
+    where: { id },
+    relations: ['user', 'hashtags']
+  });
+  // This will return NULL if tweet is soft-deleted!
+}
+
+// ✅ Include soft-deleted in queries using withDeleted
+async findOneIncludingDeleted(id: string) {
+  return this.tweetRepository.findOne({
+    where: { id },
+    relations: ['user', 'hashtags'],
+    withDeleted: true,  // ← Key option to include soft-deleted
+  });
+}
+
 async findAllIncludingDeleted() {
   return this.tweetRepository.find({
-    relations: ['user'],
+    relations: ['user', 'hashtags'],
     withDeleted: true,  // Include soft-deleted
   });
 }
+
+// ✅ Using QueryBuilder for soft-deleted entities
+async findDeletedTweets() {
+  return this.tweetRepository
+    .createQueryBuilder('tweet')
+    .withDeleted()  // Include soft-deleted
+    .where('tweet.deletedAt IS NOT NULL')  // Only deleted ones
+    .leftJoinAndSelect('tweet.user', 'user')
+    .leftJoinAndSelect('tweet.hashtags', 'hashtags')
+    .getMany();
+}
 ```
+
+**🔑 Key Points About Soft Delete:**
+
+1. **Default Behavior**: TypeORM automatically filters out entities where `deletedAt IS NOT NULL`
+2. **Why Your Queries Don't Return Soft-Deleted Data**: You must explicitly add `withDeleted: true` to query options
+3. **Difference Between Methods**:
+   - `softRemove(entity)`: Requires loading entity first, triggers lifecycle hooks
+   - `softDelete(criteria)`: Direct update, more efficient, no hooks
+4. **QueryBuilder Support**: Use `.withDeleted()` method when using QueryBuilder
+5. **Relations Consideration**: Soft-deleted parent entities are excluded even when loading relations
 
 ---
 
@@ -5460,17 +5504,36 @@ export class HashtagsModule {}
 
 ### Bidirectional Many-to-Many (Optional)
 
-If you need to query hashtags by tweets:
+If you need to query hashtags by tweets (bi-directional navigation):
 
 ```typescript
 // Tweet entity (owning side)
 @Entity()
 export class Tweet {
-  @ManyToMany(() => Hashtag, (hashtag) => hashtag.tweets)
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ type: 'varchar', length: 100 })
+  title: string;
+
+  @Column({ type: 'varchar', length: 300 })
+  content: string;
+
+  // ✅ OWNING SIDE: Has @JoinTable
+  @ManyToMany(() => Hashtag, (hashtag) => hashtag.tweets, {
+    cascade: ['insert'],  // Auto-insert new hashtags
+    eager: false,         // Don't auto-load
+  })
   @JoinTable({
     name: 'tweet_hashtags',
-    joinColumn: { name: 'tweetId' },
-    inverseJoinColumn: { name: 'hashtagId' },
+    joinColumn: {
+      name: 'tweetId',
+      referencedColumnName: 'id',
+    },
+    inverseJoinColumn: {
+      name: 'hashtagId',
+      referencedColumnName: 'id',
+    },
   })
   hashtags: Hashtag[];
 }
@@ -5478,24 +5541,44 @@ export class Tweet {
 // Hashtag entity (inverse side)
 @Entity()
 export class Hashtag {
-  @ManyToMany(() => Tweet, (tweet) => tweet.hashtags)
-  // No @JoinTable on inverse side!
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ type: 'varchar', length: 50, unique: true })
+  name: string;
+
+  // ✅ INVERSE SIDE: No @JoinTable, but HAS onDelete to allow deletion
+  @ManyToMany(() => Tweet, (tweet) => tweet.hashtags, {
+    onDelete: 'CASCADE',  // Allow deleting hashtags even when used by tweets
+  })
   tweets: Tweet[];
 }
 
 // Now you can query both ways:
+
+// 1️⃣ Get tweet with its hashtags
 const tweet = await tweetRepo.findOne({
   where: { id },
   relations: ['hashtags']
 });
-console.log(tweet.hashtags);  // ✅
+console.log(tweet.hashtags);  // ✅ Array of Hashtag objects
 
+// 2️⃣ Get hashtag with all tweets using it
 const hashtag = await hashtagRepo.findOne({
   where: { name: 'nestjs' },
   relations: ['tweets']
 });
-console.log(hashtag.tweets);  // ✅
+console.log(hashtag.tweets);  // ✅ Array of Tweet objects
 ```
+
+**⚠️ Critical Rules for Bidirectional Many-to-Many:**
+
+1. **@JoinTable Only on One Side**: The owning side (Tweet) has `@JoinTable`, the inverse side (Hashtag) does not
+2. **Configure onDelete on Inverse Side**: Add `onDelete: 'CASCADE'` to `@ManyToMany()` on inverse side (Hashtag) to allow deleting that entity even when it's in use
+3. **Both Sides Reference Each Other**: Use second parameter in `@ManyToMany()` to link both directions
+4. **Don't Use eager: true on Both Sides**: Causes infinite loops and circular dependencies
+5. **Junction Table Structure**: Owning side's `@JoinTable` defines table name and columns, but inverse side's `onDelete` controls its FK constraint
+6. **Different onDelete for Each Side**: Owning side can have its own `onDelete` (controls tweetId FK), inverse side has separate `onDelete` (controls hashtagId FK)
 
 ---
 
@@ -5596,6 +5679,39 @@ const tweet = await repo.findOne({
   where: { id },
   relations: ['hashtags']
 });
+```
+
+**7. Configure onDelete CASCADE on Inverse Side (Bidirectional)**
+```typescript
+// Tweet entity (OWNING side with @JoinTable)
+@Entity()
+export class Tweet {
+  @ManyToMany(() => Hashtag, (hashtag) => hashtag.tweets, {
+    cascade: ['insert'],
+    eager: false,
+  })
+  @JoinTable({
+    name: 'tweet_hashtags',
+    joinColumn: { name: 'tweetId' },
+    inverseJoinColumn: { name: 'hashtagId' },
+  })
+  hashtags: Hashtag[];
+}
+
+// Hashtag entity (INVERSE side)
+@Entity()
+export class Hashtag {
+  @ManyToMany(() => Tweet, (tweet) => tweet.hashtags, {
+    onDelete: 'CASCADE',  // ✅ Allows deleting hashtags even when used by tweets
+  })
+  tweets: Tweet[];
+}
+
+// 🔑 KEY UNDERSTANDING:
+// - onDelete on INVERSE side (Hashtag) → Controls FK from junction table hashtagId to hashtag.id
+// - This allows DELETE hashtag operations even when junction table references it
+// - Without CASCADE: Error "violates foreign key constraint on junction table"
+// - With CASCADE: Junction table rows automatically deleted when hashtag deleted
 ```
 
 ---

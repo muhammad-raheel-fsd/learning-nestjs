@@ -67,6 +67,6 @@ export class Tweet {
   }) // Owning side of many-to-many relationship
   hashtags: Hashtag[];
 
-  // Note: No cascade delete - hashtags are shared resources across multiple tweets
-  // Junction table records automatically deleted when tweet deleted (via FK ON DELETE CASCADE)
+  // Note: onDelete CASCADE is configured on Hashtag (inverse side) to allow deleting hashtags
+  // Junction table rows are automatically cleaned up when hashtag is deleted
 }
