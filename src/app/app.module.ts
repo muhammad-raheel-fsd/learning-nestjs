@@ -10,6 +10,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ProfileModule } from './profile/profile.module';
 import { TweetModule } from './tweet/tweet.module';
 import { HashtagsModule } from './hashtags/hashtags.module';
+import { appEnv } from 'src/shared';
 
 const ENV = process.env.NODE_ENV;
 
@@ -18,6 +19,7 @@ const ENV = process.env.NODE_ENV;
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: !ENV ? '.env' : `.env.${ENV}`,
+      load: [appEnv],
     }),
     UsersModule,
     BlogsModule,
@@ -28,21 +30,20 @@ const ENV = process.env.NODE_ENV;
       inject: [ConfigService],
       useFactory: (configService: ConfigService): TypeOrmModuleOptions => ({
         // DB_TYPE from .env (e.g. "postgres"). cast to satisfy TypeORM union type.
-        type: configService.get<'postgres'>('DB_TYPE'),
-        host: configService.get<string>('POSTGRES_HOST'),
-        port: parseInt(configService.get<string>('POSTGRES_PORT', '5432'), 10),
-        username: configService.get<string>('POSTGRES_USER', 'nestjs_app_user'),
-        password: configService.get<string>(
-          'POSTGRES_PASSWORD',
-          'nestjs_app_password',
-        ),
-        database: configService.get<string>('POSTGRES_DB', 'nestjs_app_db'),
+        type: configService.get<'postgres'>('database.type'),
+        host: configService.get<string>('database.host'),
+        port: configService.get<number>('database.port'),
+        username: configService.get<string>('database.username'),
+        password: configService.get<string>('database.password'),
+        database: configService.get<string>('database.database'),
         // entities: [User],
-        autoLoadEntities: true,
-        synchronize: true, // Note: set to false in production
-        entityPrefix: 'nestjs_app_',
-        logger: 'advanced-console',
-        logging: 'all',
+        autoLoadEntities: configService.get<boolean>(
+          'database.autoLoadEntities',
+        ),
+        synchronize: configService.get<boolean>('database.synchronize'), // Note: set to false in production
+        entityPrefix: configService.get<string>('database.entityPrefix'),
+        logger: configService.get('database.logger'),
+        logging: configService.get('database.logging'),
       }),
     }),
     ProfileModule,
